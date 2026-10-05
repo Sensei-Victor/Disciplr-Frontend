@@ -2,7 +2,10 @@ import { createContext, useContext, useMemo, type ReactNode } from 'react';
 import { useWallet, type WalletNetwork } from './WalletContext';
 import { explorerBaseUrl as getExplorerBaseUrl } from '../utils/explorer';
 import { HORIZON_URLS, USDC_ISSUERS } from '../utils/horizon';
-import { APP_EXPECTED_NETWORK } from '../utils/networkMismatch';
+import {
+    APP_EXPECTED_NETWORK,
+    resolveExpectedNetwork,
+} from '../utils/networkMismatch';
 
 export interface AppConfig {
     network: WalletNetwork;
@@ -11,14 +14,17 @@ export interface AppConfig {
     explorerBaseUrl: string;
 }
 
-const DEFAULT_NETWORK: WalletNetwork = APP_EXPECTED_NETWORK;
-
 const AppConfigContext = createContext<AppConfig | undefined>(undefined);
 
-// Centralizes network-aware configuration so the app can consume a single source of truth.
+/**
+ * Centralizes network-aware configuration so the app consumes a unified source of truth.
+ *
+ * @param props Component properties containing child elements.
+ * @returns React context provider element wrapping children with active AppConfig.
+ */
 export function AppConfigProvider({ children }: { children: ReactNode }) {
     const { network: walletNetwork } = useWallet();
-    const network = walletNetwork ?? DEFAULT_NETWORK;
+    const network = walletNetwork ? resolveExpectedNetwork(walletNetwork) : APP_EXPECTED_NETWORK;
 
     const value = useMemo<AppConfig>(
         () => ({
@@ -33,6 +39,12 @@ export function AppConfigProvider({ children }: { children: ReactNode }) {
     return <AppConfigContext.Provider value={value}>{children}</AppConfigContext.Provider>;
 }
 
+/**
+ * Accesses active AppConfig context.
+ *
+ * @returns Current AppConfig instance.
+ * @throws Error if used outside AppConfigProvider.
+ */
 export function useAppConfig() {
     const context = useContext(AppConfigContext);
     if (context === undefined) {
@@ -40,3 +52,4 @@ export function useAppConfig() {
     }
     return context;
 }
+

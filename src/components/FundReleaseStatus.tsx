@@ -3,11 +3,10 @@ import { useWallet } from '../context/WalletContext';
 import type { WalletNetwork } from '../context/WalletContext';
 import { Text } from './Text';
 import { SafeLink } from './SafeLink';
-import { EmptyState } from './EmptyState';
 import { getExplorerTxUrl } from '../utils/explorer';
+import { truncateMiddle as truncateMiddleCanonical } from '../utils/truncate';
 import {
   isPlausibleStellarAddress,
-  isValidCurrency,
   isValidTxHash,
 } from '../utils/vaultState';
 import './FundReleaseStatus.css';
@@ -25,6 +24,7 @@ export interface FundReleaseStatusProps {
   amount: number;
   currency: string;
   transaction?: SettlementTransaction;
+  isLoading?: boolean;
   /** The network the vault contract lives on. When provided alongside the
    *  wallet's network, a mismatch is surfaced instead of silently generating
    *  an explorer link for the wrong network. */
@@ -45,15 +45,16 @@ export const MAX_CURRENCY_LENGTH = 16;
 export const MAX_ADDRESS_LENGTH = 128;
 export const MAX_HASH_LENGTH = 128;
 
+/**
+ * Display wrapper around the canonical `truncateMiddle` (utils/truncate) that
+ * keeps this component's public contract: missing or non-string values render
+ * as 'Unavailable' instead of an empty string.
+ */
 export function truncateMiddle(value: string, prefixLength = 6, suffixLength = 4): string {
   if (typeof value !== 'string' || value.length === 0) {
     return 'Unavailable';
   }
-  if (value.length <= prefixLength + suffixLength + 3) {
-    return value;
-  }
-
-  return `${value.slice(0, prefixLength)}...${value.slice(-suffixLength)}`;
+  return truncateMiddleCanonical(value, prefixLength, suffixLength);
 }
 
 function networkLabel(network: WalletNetwork | null | undefined): string {
@@ -79,13 +80,20 @@ function formatTimestamp(timestamp?: string): string {
   });
 }
 
+/** Currency labels are rendered as plain text next to the amount. Anything that
+ *  is not a short alphanumeric symbol is replaced rather than echoed back, so a
+ *  hostile or malformed value cannot inject markup-like content. */
+function isSafeCurrencyLabel(value: unknown): value is string {
+  return typeof value === 'string' && /^[A-Za-z0-9]{2,64}$/.test(value);
+}
+
 function checkInvariants(outcome: FundReleaseOutcome, transaction?: SettlementTransaction): Error | null {
   const hasTx = !!(transaction?.hash || transaction?.timestamp);
-  
+
   if ((outcome === 'released' || outcome === 'redirected') && !hasTx) {
     return new Error(`Settlement transaction details are required for ${outcome} funds.`);
   }
-  
+
   if (outcome === 'pending' && hasTx) {
     return new Error(`Pending settlement cannot have transaction details.`);
   }
@@ -118,8 +126,49 @@ export function FundReleaseStatus({
   currency,
   transaction,
   network,
+  isLoading,
 }: FundReleaseStatusProps) {
   const { network: walletNetwork } = useWallet();
+
+  if (isLoading) {
+    return (
+      <section
+        className="fund-release-status fund-release-status--loading"
+        aria-label="Fund settlement status: Loading"
+        aria-busy="true"
+      >
+        <Loader2 size={22} className="animate-spin" aria-hidden="true" />
+        <Text role="body" as="span">Loading settlement status...</Text>
+      </section>
+    );
+  }
+
+  // Hard invariant: missing tx for final outcome or tx on pending
+  const invariantError = checkInvariants(outcome, transaction);
+  if (invariantError) {
+    return (
+      <div role="alert" className="fund-release-status fund-release-status--error">
+        <Text role="title" as="h2">Cannot load settlement status</Text>
+        <Text role="body" as="p">{invariantError.message}</Text>
+      </div>
+    );
+  }
+
+  // Soft violations: warn but still render
+  const violations: string[] = [];
+  if ((outcome === 'released' || outcome === 'redirected') && !destinationAddress) {
+    violations.push('final-outcome-missing-destination');
+  }
+  if (outcome === 'pending' && (destinationAddress || transaction)) {
+    violations.push('pending-has-settlement-details');
+  }
+  if (typeof destinationAddress === 'string' && destinationAddress.length > MAX_ADDRESS_LENGTH) {
+    violations.push('destination-overflow');
+  }
+  if (violations.length > 0) {
+    console.warn('[FundReleaseStatus] invariant violation', { outcome, violations });
+  }
+
   const copy = OUTCOME_COPY[outcome] ?? OUTCOME_COPY.pending;
   const Icon = copy.icon;
   const hash = transaction?.hash;
@@ -130,14 +179,16 @@ export function FundReleaseStatus({
     walletNetwork !== null &&
     network !== walletNetwork;
 
-  const displayAmount =
-    typeof amount === 'number' && Number.isFinite(amount) && amount >= 0
-      ? amount.toLocaleString()
-      : 'Unavailable';
-  const displayCurrency = isValidCurrency(currency) ? currency : 'UNKNOWN';
+  const rawAmount = typeof amount === 'number' && Number.isFinite(amount)
+    ? Math.max(0, Math.min(amount, MAX_AMOUNT))
+    : 0;
+  const displayAmount = rawAmount.toLocaleString();
+  const displayCurrency = isSafeCurrencyLabel(currency)
+    ? currency.slice(0, MAX_CURRENCY_LENGTH)
+    : 'UNKNOWN';
   const safeDestination =
     typeof destinationAddress === 'string' && destinationAddress.length > 0
-      ? destinationAddress
+      ? destinationAddress.slice(0, MAX_ADDRESS_LENGTH)
       : undefined;
   const destinationVerified = isPlausibleStellarAddress(safeDestination);
 
@@ -164,9 +215,14 @@ export function FundReleaseStatus({
       </div>
 
       {outcome === 'pending' ? (
-        <Text role="body" as="p" className="fund-release-status__pending-copy">
-          Settlement transaction details will appear after funds are released or redirected.
-        </Text>
+        <>
+          <Text role="body" as="p" className="fund-release-status__pending-copy">
+            Settlement transaction details will appear after funds are released or redirected.
+          </Text>
+          <Text role="mono" as="span" className="fund-release-status__value">
+            {displayAmount} {displayCurrency}
+          </Text>
+        </>
       ) : (
         <>
           {walletNetworkMismatch && (

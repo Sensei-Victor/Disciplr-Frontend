@@ -49,6 +49,8 @@ Routes mounted in `src/App.tsx`:
 | `/verifier/queue` | `PendingValidations` | Pending validation queue |
 | `/verifier/queue/:vaultId` | `ValidationDetail` | Validation decision details |
 | `/verifier/history` | `ValidationHistory` | Historical validation records |
+| `/notifications` | `Notification` | Notification list, filters, and preferences link |
+| `/notifications/settings` | `NotificationSettings` | Email, push, frequency, and quiet-hours preferences |
 | `*` | `NotFound` | Catch-all fallback |
 
 Implemented pages that are present in `src/pages/` but are not currently mounted
@@ -56,8 +58,6 @@ by `src/App.tsx`:
 
 - `Analytics.tsx` and `analyticsTheme.ts`; the global layout links to
   `/analytics`, but `App.tsx` does not currently register that route.
-- `Notification.tsx`; this page links to `/notification/settings`.
-- `NotificationSettings.tsx`.
 
 ## Wallet Integration
 

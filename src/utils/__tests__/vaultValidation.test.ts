@@ -1,3 +1,4 @@
+import { ACCOUNT_A, ACCOUNT_B, ACCOUNT_C } from '@/__tests__/fixtures/stellarAddresses';
 import { describe, expect, it } from "vitest";
 import {
   exceedsBalance,
@@ -8,12 +9,34 @@ import {
   validateCreateVault,
 } from "../vaultValidation";
 
-const successAddress = `G${"A".repeat(55)}`;
-const failureAddress = `G${"B".repeat(55)}`;
-const verifierAddress = `G${"C".repeat(55)}`;
+const successAddress = ACCOUNT_A;
+const failureAddress = ACCOUNT_B;
+const verifierAddress = ACCOUNT_C;
 const now = new Date("2026-06-18T00:00:00Z");
 
 describe("vaultValidation", () => {
+  it.each(['successAddress', 'failureAddress', 'verifierAddress'] as const)(
+    'rejects a checksum-corrupted %s',
+    (field) => {
+      const values = {
+        amount: '100',
+        deadline: '2026-06-19T00:00:00Z',
+        successAddress,
+        failureAddress,
+        verifierAddress,
+      };
+      const address = values[field];
+      const replacement = address.endsWith('A') ? 'B' : 'A';
+      const errors = validateCreateVault({
+        ...values,
+        [field]: `${address.slice(0, -1)}${replacement}`,
+      }, now);
+      expect(errors).toEqual({
+        [field]: 'Enter a valid Stellar public key starting with G or C.',
+      });
+    },
+  );
+
   it("validates positive USDC amounts with up to 7 decimals", () => {
     expect(isValidUsdcAmount("1")).toBe(true);
     expect(isValidUsdcAmount("0.0000001")).toBe(true);
@@ -23,7 +46,7 @@ describe("vaultValidation", () => {
     expect(isValidUsdcAmount("1e3")).toBe(false);
   });
 
-  it("validates Stellar public key shape", () => {
+  it("validates Stellar address encoding", () => {
     expect(isValidStellarAddress(successAddress)).toBe(true);
     expect(isValidStellarAddress(` ${successAddress} `)).toBe(true);
     expect(isValidStellarAddress(`M${"A".repeat(55)}`)).toBe(false);

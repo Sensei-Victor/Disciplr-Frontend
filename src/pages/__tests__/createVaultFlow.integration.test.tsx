@@ -1,9 +1,20 @@
+import { ACCOUNT_A, ACCOUNT_B, ACCOUNT_C, ACCOUNT_D } from '@/__tests__/fixtures/stellarAddresses';
 import { fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import CreateVault from "../CreateVault";
 
 vi.mock("../../context/WalletContext", () => ({
-  useWallet: vi.fn(() => ({ balance: null, balanceStatus: "idle" })),
+  useWallet: vi.fn(() => ({
+    address: `G${"C".repeat(55)}`,
+    network: "TESTNET",
+    balance: null,
+    balanceStatus: "idle",
+    isConnecting: false,
+    error: null,
+    connect: vi.fn(),
+    disconnect: vi.fn(),
+    checkConnection: vi.fn(),
+  })),
 }));
 
 const mockNavigate = vi.fn();
@@ -16,8 +27,8 @@ import { useWallet } from "../../context/WalletContext";
 const mockUseWallet = vi.mocked(useWallet);
 
 // Valid test addresses
-const validSuccessAddress = `G${"A".repeat(55)}`;
-const validFailureAddress = `G${"B".repeat(55)}`;
+const validSuccessAddress = ACCOUNT_A;
+const validFailureAddress = ACCOUNT_B;
 const futureDeadline = "2030-01-01T00:00";
 const validAmount = "100.5";
 
@@ -29,8 +40,15 @@ describe("CreateVault Flow - Integration Tests", () => {
   afterEach(() => {
     vi.restoreAllMocks();
     mockUseWallet.mockReturnValue({
+      address: `G${"C".repeat(55)}`,
+      network: "TESTNET",
       balance: null,
       balanceStatus: "idle",
+      isConnecting: false,
+      error: null,
+      connect: vi.fn(),
+      disconnect: vi.fn(),
+      checkConnection: vi.fn(),
     } as ReturnType<typeof useWallet>);
   });
 
@@ -76,19 +94,7 @@ describe("CreateVault Flow - Integration Tests", () => {
       fireEvent.click(screen.getByRole("button", { name: /confirm vault/i }));
 
       // Assert handler was invoked once with correct data
-      expect(consoleDebug).toHaveBeenCalledWith("CreateVault confirm", {
-        amount: validAmount,
-        deadline: futureDeadline,
-        successAddress: validSuccessAddress,
-        failureAddress: validFailureAddress,
-        evidenceUrl: undefined,
-        milestones: [
-          {
-            title: "Milestone 1",
-            criteria: "Default milestone criteria",
-          },
-        ],
-      });
+      expect(consoleDebug).toHaveBeenCalledWith("CreateVault confirm", { hasEvidence: false });
       expect(consoleDebug).toHaveBeenCalledTimes(1);
     });
 
@@ -339,22 +345,11 @@ describe("CreateVault Flow - Integration Tests", () => {
 
       // Re-submit
       fireEvent.click(screen.getByRole("button", { name: /create vault/i }));
+      expect(screen.getByText(newAmount)).toBeInTheDocument();
       fireEvent.click(screen.getByRole("button", { name: /confirm vault/i }));
 
-      // Verify confirm was called with new amount
-      expect(consoleDebug).toHaveBeenCalledWith("CreateVault confirm", {
-        amount: newAmount,
-        deadline: futureDeadline,
-        successAddress: validSuccessAddress,
-        failureAddress: validFailureAddress,
-        evidenceUrl: undefined,
-        milestones: [
-          {
-            title: "Milestone 1",
-            criteria: "Default milestone criteria",
-          },
-        ],
-      });
+      // Confirmation records no form details in diagnostics.
+      expect(consoleDebug).toHaveBeenCalledWith("CreateVault confirm", { hasEvidence: false });
     });
 
     it("preserves state across multiple back-to-edit cycles", () => {
@@ -537,7 +532,7 @@ describe("CreateVault Flow - Integration Tests", () => {
       expect(consoleDebug).not.toHaveBeenCalled();
     });
 
-    it("passes correct payload to confirm handler", () => {
+    it("does not log form contents on confirmation", () => {
       const consoleDebug = vi
         .spyOn(console, "debug")
         .mockImplementation(() => undefined);
@@ -551,19 +546,7 @@ describe("CreateVault Flow - Integration Tests", () => {
       fireEvent.click(screen.getByRole("button", { name: /create vault/i }));
       fireEvent.click(screen.getByRole("button", { name: /confirm vault/i }));
 
-      expect(consoleDebug).toHaveBeenCalledWith("CreateVault confirm", {
-        amount: "500.1234567",
-        deadline: futureDeadline,
-        successAddress: validSuccessAddress,
-        failureAddress: validFailureAddress,
-        evidenceUrl: undefined,
-        milestones: [
-          {
-            title: "Milestone 1",
-            criteria: "Default milestone criteria",
-          },
-        ],
-      });
+      expect(consoleDebug).toHaveBeenCalledWith("CreateVault confirm", { hasEvidence: false });
     });
   });
 
@@ -611,8 +594,8 @@ describe("CreateVault Flow - Integration Tests", () => {
       render(<CreateVault />);
 
       // Create different valid addresses (Stellar uses specific Base32 alphabet G-Z, 2-7)
-      const altSuccessAddress = `G${"C".repeat(55)}`;
-      const altFailureAddress = `G${"D".repeat(55)}`;
+      const altSuccessAddress = ACCOUNT_C;
+      const altFailureAddress = ACCOUNT_D;
 
       fillField(/amount/i, validAmount);
       fillField(/deadline/i, futureDeadline);

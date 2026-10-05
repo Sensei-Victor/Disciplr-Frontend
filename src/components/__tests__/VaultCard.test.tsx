@@ -5,10 +5,12 @@ import { describe, it, expect, vi } from 'vitest';
 import { MemoryRouter } from 'react-router-dom';
 import VaultCard, {
   VaultCardProps,
+} from '../../components/VaultCard';
+import {
   deadlineUrgency,
   URGENCY_CRITICAL_MS,
   URGENCY_SOON_MS,
-} from '../../components/VaultCard';
+} from '../../utils/vaultUrgency';
 import type { VaultStatus } from '../../types/vault';
 
 // Freeze time for consistent deadline calculations

@@ -1,9 +1,6 @@
 import React from 'react';
 
-/**
- * Semantic tones for the Badge primitive.
- * Maps to design system CSS custom properties — no hardcoded colors.
- */
+
 export type BadgeTone = 'neutral' | 'info' | 'success' | 'warning' | 'danger';
 
 /** Visual size variant for the badge. */

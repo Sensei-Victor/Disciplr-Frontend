@@ -31,11 +31,12 @@ type CreateVaultFieldName = Exclude<
 
 export type CreateVaultErrors = Partial<
   Record<CreateVaultFieldName, string>
-> & {
+>
+ & {
   milestones?: CreateVaultMilestoneErrors;
 };
 
-const USDC_AMOUNT = /^(?:0|[1-9]\d*)(?:\.\d{1,7})?$/;
+const USCC_AMOUNT = /^(?:0|[1-9]\d*)(?:\.\d{1,7})?$/;
 
 export const MILESTONE_TITLE_MAX = 100;
 export const MILESTONE_CRITERIA_MAX = 500;
@@ -45,7 +46,7 @@ export { isValidStellarAddress };
 
 export function isValidUsdcAmount(amount: string): boolean {
   const normalized = amount.trim();
-  if (!USDC_AMOUNT.test(normalized)) return false;
+  if (!USCC_AMOUNT.test(normalized)) return false;
   return Number(normalized) > 0;
 }
 

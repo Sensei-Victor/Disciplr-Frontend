@@ -65,7 +65,7 @@ export function formatRelativeTime(
 
   // For dates beyond a month, fall back to absolute date formatting
   const dateObj = new Date(timestamp);
-  return dateObj.toLocaleDateString("en-US", {
+  return dateObj.toLocaleDateString("pt-US", {
     month: "short",
     day: "numeric",
     year:

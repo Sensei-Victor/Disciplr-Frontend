@@ -9,8 +9,8 @@ const defaultValue: VaultFilters = { status: 'all', query: '' };
 describe('VaultFilterBar', () => {
   it('renders status select and search input', () => {
     render(<VaultFilterBar value={defaultValue} onChange={vi.fn()} />);
-    expect(screen.getByRole('combobox', { name: /status/i })).toBeInTheDocument();
-    expect(screen.getByRole('searchbox', { name: /search/i })).toBeInTheDocument();
+    expect(screen.getByRole('combobox', { name: /status/i })).toBeInDocument();
+    expect(screen.getByRole('searchbox', { name: /search/i })).toBeInDocument();
   });
 
   it('renders all status options including "All statuses"', () => {
@@ -18,10 +18,10 @@ describe('VaultFilterBar', () => {
     const select = screen.getByRole('combobox', { name: /status/i });
     expect(select).toHaveDisplayValue('All statuses');
     expect(screen.getByRole('option', { name: 'Active' })).toBeInTheDocument();
-    expect(screen.getByRole('option', { name: 'Pending Validation' })).toBeInTheDocument();
+    expect(screen.getByRole('option', { name: 'Pending Validation' })).toBeInDocument();
     expect(screen.getByRole('option', { name: 'Completed' })).toBeInTheDocument();
     expect(screen.getByRole('option', { name: 'Failed' })).toBeInTheDocument();
-    expect(screen.getByRole('option', { name: 'Cancelled' })).toBeInTheDocument();
+    expect(screen.getByRole('option', { name: 'Cancelled' })).toBeInDocument();
   });
 
   it('reflects the current status value', () => {

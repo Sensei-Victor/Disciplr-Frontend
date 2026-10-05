@@ -1,14 +1,15 @@
 import { useState, useMemo, useCallback, useEffect, useRef, Suspense, lazy } from 'react'
-import { useSearchParams } from 'react-router-dom'
+import { useSearchParams } from 'react-router-dom' // Ensure search params are available
 import { useTheme } from '../context/ThemeContext'
 import { usePrefersReducedMotion } from '../utils/usePrefersReducedMotion'
 import { computeAnalyticsKpis, formatCurrency, formatPercentage, type AnalyticsDataPoint } from '../utils/analyticsKpis'
 import { type Period, parsePeriod, serializePeriod } from '../utils/periodParam'
 import { logger } from '../utils/logger'
 import Skeleton from '../components/Skeleton'
+import type { jsPDF } from 'jspdf'
 const AnalyticsCharts = lazy(() => import('./AnalyticsCharts'))
 
-type JsPDFCtor = typeof import('jspdf').jsPDF
+type JsPDFInstance = InstanceType<typeof import('jspdf').default>
 
 import {
   Target, CheckCircle, Award, ArrowUpRight, ArrowDownRight, Clock, DollarSign,
@@ -19,8 +20,42 @@ import { getAnalyticsChartTokens, buildAnalyticsSeriesColors } from './analytics
 import type { ChartLegendEntry } from '../components/ChartLegend'
 import { toCsv, downloadCsv } from '../utils/csv'
 import { analyticsPeriodData, prevPeriodData, vaultStatusData, milestoneTypes, computeBenchmarkData, TEAM_CHART_DATA } from './analyticsData'
+import { parseGoalInput, safePercent, validateDateRange, filterMonthlySeries, alignPreviousByName } from './analyticsValidation'
 
 const PERIODS: Period[] = ['7d', '30d', '90d', '1y', 'All']
+
+// ─── Boundary / failure-path helpers ────────────────────────────────────────
+// These pure helpers centralize the invariants that guard the Analytics page
+// against invalid, duplicate, and boundary-case inputs. They are exported so
+// focused tests can exercise them without rendering the full component.
+
+/** Parse a user-entered numeric goal, returning a safe fallback on invalid input. */
+export function parseGoalInput(raw: string, fallback: number, opts: { min?: number; max?: number } = {}): number {
+  const { min = 0, max = Number.POSITIVE_INFINITY } = opts
+  if (typeof raw !== 'string' || raw.trim() === '') return fallback
+  const n = Number(raw)
+  if (!Number.isFinite(n)) return fallback
+  if (n < min) return min
+  if (n > max) return max
+  return n
+}
+
+/** Validate a custom date range. Returns null when the range is not usable. */
+export function validateCustomRange(from: string, to: string): { from: Date; to: Date } | null {
+  if (!from || !to) return null
+  const f = new Date(from)
+  const t = new Date(to)
+  if (isNaN(f.getTime()) || isNaN(t.getTime())) return null
+  if (f > t) return null
+  return { from: f, to: t }
+}
+
+/** Deduplicate a series by `name`, keeping the last occurrence (latest wins). */
+export function dedupeByName<T extends { name: string }>(rows: T[]): T[] {
+  const seen = new Map<string, T>()
+  for (const row of rows) seen.set(row.name, row)
+  return Array.from(seen.values())
+}
 
 function useAnalyticsChartTokens() {
   const { theme } = useTheme()
@@ -40,9 +75,20 @@ function useAnalyticsChartTokens() {
   return tokens
 }
 
-function Card({ children, style = {} }: { children: React.ReactNode; style?: React.CSSProperties }) {
+// Locked (enterprise-gated) previews are decorative only: hidden from assistive
+// technology and made inert so nothing inside can be focused or activated.
+// React 18 has no typed `inert` prop, so it is applied via the ref.
+function markInert(el: HTMLDivElement | null) {
+  el?.setAttribute('inert', '')
+}
+
+function Card({ children, style = {}, locked = false }: { children: React.ReactNode; style?: React.CSSProperties; locked?: boolean }) {
   return (
-    <div style={{
+    <div
+      aria-hidden={locked || undefined}
+      ref={locked ? markInert : undefined}
+      data-locked={locked || undefined}
+      style={{
       background: 'var(--surface)',
       border: '1px solid var(--border)',
       borderRadius: 'var(--radius)',
@@ -88,9 +134,10 @@ export default function Analytics() {
   const [goalRate, setGoalRate] = useState('90')
   const [goalCapital, setGoalCapital] = useState('5000')
   const [isLoading] = useState(false)
-  const jsPDFRef = useRef<JsPDFCtor | null>(null)
+  const jsPDFRef = useRef<typeof jsPDF | null>(null)
   const [isExportLoading, setIsExportLoading] = useState(false)
   const [exportError, setExportError] = useState<string | null>(null)
+  const pdfExportInFlight = useRef(false)
 
   const setPeriod = useCallback((p: Period) => {
     setPeriodInternal(p)
@@ -107,14 +154,13 @@ export default function Analytics() {
   }, [period, searchParams])
 
   // ─── Custom date range filtering ─────────────────────────────────────────
-  // When both customFrom and customTo are filled and form a valid range, filter
-  // the '1y' monthly series to the months that fall within the chosen dates.
+  // Invariant: the custom range only drives the data when both inputs parse as
+  // local dates and start <= end. Any other state (empty, half-filled,
+  // malformed, reversed) falls back to the selected preset period, and
+  // malformed/reversed input surfaces `dateRangeError` instead of failing silently.
   // The preset period buttons are visually deactivated while a custom range is active.
   const customRangeActive = useMemo(() => {
-    if (!customFrom || !customTo) return false
-    const from = new Date(customFrom)
-    const to = new Date(customTo)
-    return !isNaN(from.getTime()) && !isNaN(to.getTime()) && from <= to
+    return validateCustomRange(customFrom, customTo) !== null
   }, [customFrom, customTo])
 
   // Month abbreviation → 0-based month index used to compare against date inputs
@@ -124,10 +170,13 @@ export default function Analytics() {
   }
 
   // ─── Memoized data selections ──────────────────────────────────────────────
+  // A custom range filters the '1y' monthly series to the months whose first
+  // day falls inside the range (inclusive).
   const chartData = useMemo(() => {
     if (customRangeActive) {
-      const from = new Date(customFrom)
-      const to = new Date(customTo)
+      const range = validateCustomRange(customFrom, customTo)
+      if (!range) return []
+      const { from, to } = range
       // Use the '1y' monthly series as the basis for custom filtering.
       // A data point is included when its month (in the year inferred from the
       // date inputs) falls between the from and to dates (inclusive).
@@ -142,16 +191,22 @@ export default function Analytics() {
           (pointDateNextYear >= from && pointDateNextYear <= to)
       })
     }
-    return analyticsPeriodData[period]
+    return dedupeByName(analyticsPeriodData[period])
   }, [customRangeActive, customFrom, customTo, period])
 
+  // Invariant: row i of prevChartData describes the same bucket as row i of
+  // chartData. Presets are paired with their own previous period; a custom
+  // range is compared month-for-month against the previous year, never against
+  // the unrelated previous series of whichever preset is hidden behind it.
   const prevChartData = useMemo(
-    () => prevPeriodData[period],
-    [period]
+    () => (dateRange.status === 'valid'
+      ? alignPreviousByName(chartData, prevPeriodData['1y'])
+      : prevPeriodData[period]),
+    [dateRange, chartData, period]
   )
 
   const comparisonData = useMemo(
-    () => chartData.map((d, i) => ({
+    () => dedupeByName(chartData).map((d, i) => ({
       ...d,
       prevSuccess: prevChartData[i]?.success ?? 0,
       prevCapital: prevChartData[i]?.capital ?? 0,
@@ -171,6 +226,16 @@ export default function Analytics() {
   )
 
   const benchmarkData = useMemo(() => computeBenchmarkData(kpis), [kpis])
+
+  // ─── Goal validation ───────────────────────────────────────────────────────
+  // Invariant: goal progress is only evaluated against a finite, in-range goal.
+  // Empty/invalid input shows a message and no marker — never "Goal achieved",
+  // "NaN% to go" or a marker outside the bar.
+  const rateGoal = useMemo(() => parseGoalInput(goalRate, RATE_GOAL_BOUNDS), [goalRate])
+  const capitalGoal = useMemo(() => parseGoalInput(goalCapital, CAPITAL_GOAL_BOUNDS), [goalCapital])
+  const rateGoalMet = rateGoal.value !== null && kpis.averageSuccessRate >= rateGoal.value
+  const capitalGoalMet = capitalGoal.value !== null && kpis.totalCapital >= capitalGoal.value
+  const capitalScale = capitalGoal.value !== null ? Math.max(capitalGoal.value, kpis.totalCapital) : kpis.totalCapital
 
   const bestPeriod = useMemo(() => {
   if (!chartData.length) return null;
@@ -272,6 +337,11 @@ const currentStreak = useMemo(() => {
   }, [chartData, period, customRangeActive, customFrom, customTo])
 
   const handlePdfExport = useCallback(async () => {
+    // Guard against concurrent invocations: a second click while a PDF is
+    // already being generated must be a no-op to avoid duplicate downloads
+    // and interleaved state updates.
+    if (pdfExportInFlight.current) return
+    pdfExportInFlight.current = true
     setExportError(null)
     setIsExportLoading(true)
     try {
@@ -280,8 +350,12 @@ const currentStreak = useMemo(() => {
         jsPDFRef.current = mod?.default ?? mod
       }
 
+      if (!jsPDFRef.current) {
+        throw new Error('jsPDF module did not expose a constructor')
+      }
+
       const jsPDF = jsPDFRef.current
-      const doc = new jsPDF()
+      const doc: JsPDFInstance = new jsPDF()
       const accent = [0, 195, 137] as const
 
       // Header bar
@@ -303,11 +377,11 @@ const currentStreak = useMemo(() => {
       doc.setFont('helvetica', 'bold')
       doc.text('Key Metrics', 14, 42)
 
-      const metrics = [
+      const metrics: [string, string][] = [
         ['Total Capital Locked', `${formatCurrency(kpis.totalCapital)} USDC`],
         ['Success Rate', formatPercentage(kpis.averageSuccessRate)],
         ['Total Milestones', `${kpis.totalMilestones}`],
-        ['Period', period],
+        ['Period', customRangeActive ? `${customFrom} → ${customTo}` : period],
         ['vs Previous Period (Capital)', kpis.capitalDelta !== 0 ? `${kpis.capitalDelta > 0 ? '+' : ''}${formatCurrency(kpis.capitalDelta)}` : 'No prior data'],
         ['vs Previous Period (Success)', kpis.successDelta !== 0 ? `${kpis.successDelta > 0 ? '+' : ''}${formatPercentage(kpis.successDelta, 1)}` : 'No prior data'],
       ]
@@ -318,10 +392,10 @@ const currentStreak = useMemo(() => {
         const row = 52 + Math.floor(i / 2) * 14
         doc.setFont('helvetica', 'normal')
         doc.setTextColor(100, 110, 130)
-        doc.text(label as string, col, row)
+        doc.text(label, col, row)
         doc.setFont('helvetica', 'bold')
         doc.setTextColor(20, 20, 30)
-        doc.text(value as string, col, row + 6)
+        doc.text(value, col, row + 6)
       })
 
       // Divider
@@ -375,7 +449,7 @@ const currentStreak = useMemo(() => {
       doc.setTextColor(30, 45, 66)
       doc.text('Capital Flow Summary', 14, tableEnd + 12)
 
-      const flow = [
+      const flow: [string, string, readonly [number, number, number]][] = [
         ['Released to Success Destinations', '$8,750 USDC', [0, 155, 110] as const],
         ['Redirected on Failure', '$2,400 USDC', [200, 60, 55] as const],
         ['Platform Fee (1%)', '$124 USDC', [100, 110, 130] as const],
@@ -386,10 +460,10 @@ const currentStreak = useMemo(() => {
         doc.setFont('helvetica', 'normal')
         doc.setFontSize(10)
         doc.setTextColor(100, 110, 130)
-        doc.text(label as string, 17, y)
+        doc.text(label, 17, y)
         doc.setFont('helvetica', 'bold')
-        doc.setTextColor(...(color as [number, number, number]))
-        doc.text(value as string, 150, y)
+        doc.setTextColor(...color)
+        doc.text(value, 150, y)
       })
 
       // Footer
@@ -406,9 +480,10 @@ const currentStreak = useMemo(() => {
       logger.error('Failed to load or run jsPDF', err)
       setExportError('Failed to generate PDF. Please try again.')
     } finally {
+      pdfExportInFlight.current = false
       setIsExportLoading(false)
     }
-  }, [chartData, period, customRangeActive, customFrom, customTo])
+  }, [chartData, kpis, period, customRangeActive, customFrom, customTo])
 
   return (
     <>
@@ -573,7 +648,9 @@ const currentStreak = useMemo(() => {
               value={customFrom}
               onChange={e => setCustomFrom(e.target.value)}
               aria-label="Custom range start date"
-              style={customRangeActive ? { borderColor: 'var(--accent)' } : undefined}
+              aria-invalid={dateRangeError ? true : undefined}
+              aria-describedby={dateRangeError ? 'custom-range-error' : undefined}
+              style={customRangeActive ? { borderColor: 'var(--accent)' } : dateRangeError ? { borderColor: 'var(--danger)' } : undefined}
             />
             <span style={{ color: 'var(--muted)', fontSize: '0.8rem' }}>→</span>
             <input
@@ -582,9 +659,11 @@ const currentStreak = useMemo(() => {
               min={customFrom || undefined}
               onChange={e => setCustomTo(e.target.value)}
               aria-label="Custom range end date"
-              style={customRangeActive ? { borderColor: 'var(--accent)' } : undefined}
+              aria-invalid={dateRangeError ? true : undefined}
+              aria-describedby={dateRangeError ? 'custom-range-error' : undefined}
+              style={customRangeActive ? { borderColor: 'var(--accent)' } : dateRangeError ? { borderColor: 'var(--danger)' } : undefined}
             />
-            {customRangeActive && (
+            {(customFrom || customTo) && (
               <button
                 className="action-btn"
                 onClick={() => { setCustomFrom(''); setCustomTo('') }}
@@ -593,6 +672,11 @@ const currentStreak = useMemo(() => {
               >
                 ✕ Clear
               </button>
+            )}
+            {dateRangeError && (
+              <span id="custom-range-error" role="alert" style={{ color: 'var(--danger)', fontSize: '0.78rem' }}>
+                {dateRangeError}
+              </span>
             )}
           </div>
 
@@ -866,24 +950,29 @@ const currentStreak = useMemo(() => {
                   Target Success Rate (%)
                 </label>
                 <input type="number" value={goalRate} min={0} max={100}
+                  aria-label="Target success rate"
+                  aria-invalid={rateGoal.error ? true : undefined}
+                  aria-describedby="goal-rate-status"
                   onChange={e => setGoalRate(e.target.value)} />
                 <div style={{ marginTop: '0.75rem' }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.78rem', marginBottom: '0.25rem' }}>
                     <span style={{ color: 'var(--muted)' }}>Current: {formatPercentage(kpis.averageSuccessRate)}</span>
-                    <span style={{ color: kpis.averageSuccessRate >= Number(goalRate) ? seriesColors.success : seriesColors.comparison }}>
-                      Goal: {goalRate}%
+                    <span style={{ color: rateGoalMet ? seriesColors.success : seriesColors.comparison }}>
+                      Goal: {rateGoal.value !== null ? `${rateGoal.value}%` : '—'}
                     </span>
                   </div>
                   <div style={{ height: 8, background: 'var(--border)', borderRadius: 99, position: 'relative' }}>
-                    <div className="disciplr-progress-bar" style={{ height: '100%', width: `${Math.min(kpis.averageSuccessRate, 100)}%`, background: seriesColors.success, borderRadius: 99 }} />
-                    <div style={{
-                      position: 'absolute', top: -2, left: `${Math.min(Number(goalRate), 100)}%`,
-                      width: 3, height: 12, background: seriesColors.comparison, borderRadius: 2,
-                      transform: 'translateX(-50%)',
-                    }} />
+                    <div className="disciplr-progress-bar" data-testid="goal-rate-progress" style={{ height: '100%', width: `${safePercent(kpis.averageSuccessRate, 100)}%`, background: seriesColors.success, borderRadius: 99 }} />
+                    {rateGoal.value !== null && (
+                      <div data-testid="goal-rate-marker" style={{
+                        position: 'absolute', top: -2, left: `${safePercent(rateGoal.value, 100)}%`,
+                        width: 3, height: 12, background: seriesColors.comparison, borderRadius: 2,
+                        transform: 'translateX(-50%)',
+                      }} />
+                    )}
                   </div>
                   <div style={{ fontSize: '0.75rem', color: kpis.averageSuccessRate >= Number(goalRate) ? seriesColors.success : 'var(--muted)', marginTop: '0.3rem' }}>
-                    {kpis.averageSuccessRate >= Number(goalRate) ? '✓ Goal achieved!' : `${(Number(goalRate) - kpis.averageSuccessRate).toFixed(1)}% to go`}
+                    {kpis.averageSuccessRate >= parseGoalInput(goalRate, 90, { min: 0, max: 100 }) ? '✓ Goal achieved!' : `${(parseGoalInput(goalRate, 90, { min: 0, max: 100 }) - kpis.averageSuccessRate).toFixed(1)}% to go`}
                   </div>
                 </div>
               </div>
@@ -894,24 +983,27 @@ const currentStreak = useMemo(() => {
                   Target Capital Locked (USDC)
                 </label>
                 <input type="number" value={goalCapital} min={0}
+                  aria-label="Target capital locked"
+                  aria-invalid={capitalGoal.error ? true : undefined}
+                  aria-describedby="goal-capital-status"
                   onChange={e => setGoalCapital(e.target.value)} />
                 <div style={{ marginTop: '0.75rem' }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.78rem', marginBottom: '0.25rem' }}>
                     <span style={{ color: 'var(--muted)' }}>Current: {formatCurrency(kpis.totalCapital)}</span>
-                    <span style={{ color: kpis.totalCapital >= Number(goalCapital) ? seriesColors.success : seriesColors.comparison }}>
-                      Goal: ${Number(goalCapital).toLocaleString()}
+                    <span style={{ color: capitalGoalMet ? seriesColors.success : seriesColors.comparison }}>
+                      Goal: {capitalGoal.value !== null ? `$${capitalGoal.value.toLocaleString()}` : '—'}
                     </span>
                   </div>
                   <div style={{ height: 8, background: 'var(--border)', borderRadius: 99, position: 'relative' }}>
-                    <div className="disciplr-progress-bar" style={{ height: '100%', width: `${Math.min((kpis.totalCapital / Math.max(Number(goalCapital), kpis.totalCapital)) * 100, 100)}%`, background: seriesColors.success, borderRadius: 99 }} />
+                    <div className="disciplr-progress-bar" style={{ height: '100%', width: `${Math.min((kpis.totalCapital / Math.max(parseGoalInput(goalCapital, 5000, { min: 0 }), kpis.totalCapital)) * 100, 100)}%`, background: seriesColors.success, borderRadius: 99 }} />
                     <div style={{
                       position: 'absolute', top: -2,
-                      left: `${Math.min((Number(goalCapital) / Math.max(Number(goalCapital), kpis.totalCapital)) * 100, 100)}%`,
+                      left: `${Math.min((parseGoalInput(goalCapital, 5000, { min: 0 }) / Math.max(parseGoalInput(goalCapital, 5000, { min: 0 }), kpis.totalCapital)) * 100, 100)}%`,
                       width: 3, height: 12, background: seriesColors.comparison, borderRadius: 2, transform: 'translateX(-50%)',
                     }} />
                   </div>
                   <div style={{ fontSize: '0.75rem', color: kpis.totalCapital >= Number(goalCapital) ? seriesColors.success : 'var(--muted)', marginTop: '0.3rem' }}>
-                    {kpis.totalCapital >= Number(goalCapital) ? '✓ Goal achieved!' : `$${(Number(goalCapital) - kpis.totalCapital).toLocaleString()} to go`}
+                    {kpis.totalCapital >= parseGoalInput(goalCapital, 5000, { min: 0 }) ? '✓ Goal achieved!' : `$${(parseGoalInput(goalCapital, 5000, { min: 0 }) - kpis.totalCapital).toLocaleString()} to go`}
                   </div>
                 </div>
               </div>
@@ -1010,7 +1102,7 @@ const currentStreak = useMemo(() => {
             </div>
 
             {/* Team Members */}
-            <Card style={{ opacity: 0.4 }}>
+            <Card style={{ opacity: 0.4 }} locked>
               <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '1rem' }}>
                 <Users size={17} color="var(--muted)" />
                 <span style={{ color: 'var(--muted)', fontSize: '0.82rem' }}>Team Members</span>
@@ -1039,7 +1131,7 @@ const currentStreak = useMemo(() => {
             </Card>
 
             {/* Team Bar Chart */}
-            <Card style={{ opacity: 0.4 }}>
+            <Card style={{ opacity: 0.4 }} locked>
               <ChartTitle>Team Success Rate</ChartTitle>
               <ChartSummary>
                 Locked enterprise preview bar chart showing example team member success rates.
@@ -1053,7 +1145,7 @@ const currentStreak = useMemo(() => {
             </Card>
 
             {/* Org Summary */}
-            <Card style={{ opacity: 0.4 }}>
+            <Card style={{ opacity: 0.4 }} locked>
               <ChartTitle>Organization Summary</ChartTitle>
               <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
                 {[

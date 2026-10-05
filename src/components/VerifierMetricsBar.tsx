@@ -1,6 +1,6 @@
 import React from 'react';
 import { Text } from './Text';
-import { CRITICAL_DAYS_THRESHOLD, type VerifierMetrics } from '../utils/verifierMetrics';
+import { type VerifierMetrics } from '../utils/verifierMetrics';
 
 export interface VerifierMetricsBarProps {
   metrics: VerifierMetrics;
@@ -78,7 +78,7 @@ export const VerifierMetricsBar: React.FC<VerifierMetricsBarProps> = ({ metrics 
   const approvedPct = Math.round(metrics.approvalRate * 100);
   const criticalDescription =
     metrics.criticalCount > 0
-      ? `≤ ${CRITICAL_DAYS_THRESHOLD} days to deadline`
+      ? `≤ ${3} days to deadline`
       : 'No urgent deadlines';
 
   return (
@@ -99,7 +99,7 @@ export const VerifierMetricsBar: React.FC<VerifierMetricsBarProps> = ({ metrics 
         tone={overdueTone(metrics.overdueCount)}
       />
       <MetricCell
-        label={`Critical (≤${CRITICAL_DAYS_THRESHOLD}d)`}
+        label={`Critical (≤${3}d)`}
         value={String(metrics.criticalCount)}
         tone={criticalTone(metrics.criticalCount)}
         description={criticalDescription}

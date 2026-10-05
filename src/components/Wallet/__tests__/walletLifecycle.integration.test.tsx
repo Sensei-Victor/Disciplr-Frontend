@@ -126,8 +126,10 @@ describe('Wallet lifecycle integration', () => {
         fireEvent.click(screen.getByRole('button', { name: /connect wallet/i }));
         fireEvent.click(await screen.findByText('Freighter'));
 
-        const freighterButton = await screen.findByRole('button', { name: /freighter/i });
-        expect(freighterButton).toBeDisabled();
+        // After clicking Freighter, the component enters connecting state —
+        // the modal is replaced by a disabled "Connecting…" button.
+        const connectingBtn = await screen.findByRole('button', { name: /connecting/i });
+        expect(connectingBtn).toBeDisabled();
 
         resolveRequestAccess(true);
 
@@ -185,7 +187,7 @@ describe('Wallet lifecycle integration', () => {
         fireEvent.click(await screen.findByText('Freighter'));
 
         expect(await screen.findByTestId('wallet-error')).toHaveTextContent('Wallet access denied.');
-        expect(await screen.findByRole('button', { name: /connect wallet/i })).toBeInTheDocument();
+        expect(await screen.findByRole('button', { name: /connection failed/i })).toBeInTheDocument();
     });
 
     test('disconnect resets address and balance to null', async () => {

@@ -24,6 +24,15 @@
  * network matches the network the app is pinned to. The final authorization
  * authority stays in the contract; this boundary only prevents the UI from
  * offering or showing impossible transitions.
+ *
+ * Invariants enforced here (regression-covered):
+ *  - Route ids are bounded, character-restricted, and never prototype keys.
+ *  - Server responses are structurally validated before rendering; invalid
+ *    data is rejected wholesale rather than partially rendered.
+ *  - Milestone lists are checked for duplicate/missing ids, unknown statuses,
+ *    stale validation timestamps, and impossible ordering.
+ *  - Settlement state must be consistent with the vault principal.
+ *  - Sensitive actions require a valid, matching-network, authorized wallet.
  */
 
 import type { Milestone, MilestoneStatus, Vault, VaultStatus } from "../types/vault";
@@ -75,6 +84,9 @@ export function lookupVaultSafe<T>(
   id: string | undefined,
 ): T | undefined {
   if (typeof id !== "string") return undefined;
+  // Defense in depth: even if a caller bypasses isValidVaultRouteId, never
+  // resolve prototype members through a plain-object lookup.
+  if (RESERVED_OBJECT_KEYS.has(id)) return undefined;
   if (!Object.prototype.hasOwnProperty.call(store, id)) return undefined;
   return store[id];
 }
@@ -269,6 +281,15 @@ export function validateVaultResponse(value: unknown): VaultValidationResult {
         issues.push(`Milestone id "${milestone.id}" is duplicated.`);
       } else {
         seenIds.add(milestone.id);
+      }
+      if (
+        milestone.validatedAt !== undefined &&
+        milestone.status !== "validated" &&
+        milestone.validatedAt !== ""
+      ) {
+        issues.push(
+          `Milestone ${index} has a validation timestamp but is not validated.`,
+        );
       }
       if (!isNonEmptyString(milestone.title)) {
         issues.push(`Milestone ${index} title must be a non-empty string.`);
@@ -625,5 +646,7 @@ export function evalVaultActionAuth({
     );
   }
 
+  // Invariant: an action is allowed only when every precondition passed.
+  // Returning `allowed: true` with any reason present would be unsafe.
   return { allowed: reasons.length === 0, reasons };
 }

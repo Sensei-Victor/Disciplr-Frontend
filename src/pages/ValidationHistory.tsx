@@ -9,6 +9,7 @@ import {
 import type { ValidationHistoryStatusFilter } from '../utils/paginate';
 import { downloadCsv, toCsv } from '../utils/csv';
 import { StatusChip } from '../components/StatusChip';
+import { mapValidationStatusToChipStatus } from '../utils/verifierStatus';
 import {
   VALIDATION_HISTORY_PAGE_SIZE_OPTIONS,
   persistValidationHistoryPageSize,
@@ -260,7 +261,7 @@ export default function ValidationHistory() {
                 <div className="flex flex-col gap-2 md:w-1/3">
                   <div className="flex items-center gap-3">
                     <StatusChip
-                      status={task.status === 'pending' ? 'pending_validation' : task.status}
+                      status={mapValidationStatusToChipStatus(task.status)}
                       className="uppercase"
                       size="sm"
                     />

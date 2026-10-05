@@ -332,7 +332,10 @@ describe('Chart Tokens Validation & Safety Suite', () => {
   });
 
   test('should verify basic validator coverage', () => {
-    expect(isValidHexColor('#abc')).toBe(false);
+    // '#abc' is a valid CSS 3-digit hex shorthand (a=0xAA, b=0xBB, c=0xCC).
+    // The validator must accept it — use a genuinely invalid string instead.
+    expect(isValidHexColor('#xyz')).toBe(false);
+    expect(isValidHexColor('#abc')).toBe(true);
     expect(isValidRgbColor('rgb(a, b, c)')).toBe(false);
     expect(isValidHslColor('hsl(a, b, c)')).toBe(false);
     expect(isKebabCase('Kebab-Case')).toBe(false);

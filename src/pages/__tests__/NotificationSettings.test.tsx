@@ -1,3 +1,10 @@
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { readFileSync } from 'fs';
+import { resolve } from 'path';
+import { render, screen, fireEvent } from '@testing-library/react';
+import NotificationSettings from '../NotificationSettings';
+import { useNotificationPreferences } from '../../Zustand/Store';
+
 type SourceAssertion = {
   name: string;
   pattern: RegExp;
@@ -49,13 +56,6 @@ export function assertNotificationSettingsSource(source: string) {
 }
 
 export const notificationSettingsThemeTestCases = sourceAssertions.map(({ name }) => name);
-
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { readFileSync } from 'fs';
-import { resolve } from 'path';
-import { render, screen, fireEvent } from '@testing-library/react';
-import NotificationSettings from '../NotificationSettings';
-import { useNotificationPreferences } from '../../Zustand/Store';
 
 const source = readFileSync(
   resolve(__dirname, '../NotificationSettings.tsx'),
@@ -267,4 +267,3 @@ describe('NotificationSettings component behavior', () => {
     expect(validInput).toHaveAttribute('aria-invalid', 'false');
   });
 });
-

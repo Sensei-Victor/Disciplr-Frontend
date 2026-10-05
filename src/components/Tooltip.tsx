@@ -1,10 +1,4 @@
-import React, {
-  useCallback,
-  useEffect,
-  useId,
-  useRef,
-  useState,
-} from "react";
+import React, { useCallback, useEffect, useId, useRef, useState } from "react";
 import { usePrefersReducedMotion } from "../utils/usePrefersReducedMotion";
 
 export type TooltipPosition = "top" | "bottom";
@@ -19,12 +13,20 @@ export interface TooltipProps {
 const ANIMATION_DURATION_MS = 150;
 
 /**
- * Lightweight, accessible Tooltip.
+ * Lightweight, accessible Tooltip component.
  *
- * - Links tooltip via `aria-describedby` on the trigger element.
- * - Shows on hover (mouseenter/mouseleave) and focus (focus/blur).
- * - Dismisses on Escape keydown.
- * - Respects `prefers-reduced-motion`: skips CSS transition when set.
+ * Stacking context is governed by the design system's z-index scale via
+ * `var(--z-index-tooltip)`, ensuring tooltips float above surrounding page
+ * content and headers while remaining below drawers and modals.
+ *
+ * Accessibility features:
+ * - Dynamically links trigger element to tooltip via `aria-describedby`.
+ * - Activates on pointer hover and keyboard focus.
+ * - Dismisses on Escape keypress.
+ * - Respects `prefers-reduced-motion` settings.
+ *
+ * @param props Component configuration options.
+ * @returns Accessible tooltip element wrapping the provided trigger child.
  */
 export function Tooltip({
   content,
@@ -62,7 +64,6 @@ export function Tooltip({
     return () => document.removeEventListener("keydown", onKeyDown);
   }, [visible]);
 
-  // Cleanup pending timer on unmount.
   useEffect(
     () => () => {
       if (hideTimerRef.current) clearTimeout(hideTimerRef.current);
@@ -92,16 +93,26 @@ export function Tooltip({
 
   const positionStyle: React.CSSProperties =
     position === "top"
-      ? { bottom: "calc(100% + 6px)", left: "50%", transform: "translateX(-50%)" }
+      ? {
+          bottom: "calc(100% + 6px)",
+          left: "50%",
+          transform: "translateX(-50%)",
+        }
       : { top: "calc(100% + 6px)", left: "50%", transform: "translateX(-50%)" };
 
   const transitionStyle: React.CSSProperties = prefersReducedMotion
-    ? {}
-    : { transition: `opacity ${ANIMATION_DURATION_MS}ms ease, transform ${ANIMATION_DURATION_MS}ms ease` };
+    ? { transition: "none" }
+    : {
+        transition: `opacity ${ANIMATION_DURATION_MS}ms ease, transform ${ANIMATION_DURATION_MS}ms ease`,
+      };
 
   return (
     <span
-      style={{ position: "relative", display: "inline-flex", alignItems: "center" }}
+      style={{
+        position: "relative",
+        display: "inline-flex",
+        alignItems: "center",
+      }}
       className={className}
     >
       {trigger}
@@ -112,7 +123,7 @@ export function Tooltip({
         style={{
           position: "absolute",
           ...positionStyle,
-          zIndex: "var(--z-index-tooltip, 150)",
+          zIndex: "var(--z-index-tooltip)",
           pointerEvents: "none",
           whiteSpace: "nowrap",
           padding: "4px 10px",
@@ -128,7 +139,6 @@ export function Tooltip({
             ? `translateX(-50%)`
             : `translateX(-50%) ${position === "top" ? "translateY(4px)" : "translateY(-4px)"}`,
           ...transitionStyle,
-          // Visually hidden but in DOM for aria-describedby linkage when not visible.
           visibility: visible ? "visible" : "hidden",
         }}
         aria-hidden={!visible}

@@ -142,8 +142,8 @@ export function reportWebVitals(onReport?: MetricCallback): void {
               const metric: Metric = {
                 id: `fid-${Date.now()}`,
                 name: 'FID',
-                value: eventTiming.processingStart - entry.startTime,
-                rating: getFidRating(eventTiming.processingStart - entry.startTime),
+                value: eventTiming.processingStart - eventTiming.startTime,
+                rating: getFidRating(eventTiming.processingStart - eventTiming.startTime),
                 navigationType: getNavigationType(),
               };
 

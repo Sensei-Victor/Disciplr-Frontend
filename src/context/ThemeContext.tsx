@@ -1,6 +1,6 @@
 import { createContext, useContext, useEffect, useMemo, useState, useCallback, ReactNode } from 'react';
 
-// In‑memory fallback when localStorage fails
+// In-memory fallback when localStorage fails
 let memoryPreference: UserPreference | null = null;
 
 function safeGetItem(key: string): string | null {
@@ -12,12 +12,13 @@ function safeGetItem(key: string): string | null {
   }
 }
 
-function safeSetItem(key: string, value: string): void {
+function safeSetItem(key: string, value: UserPreference): void {
   try {
     localStorage.setItem(key, value);
   } catch {
-    // persist in-memory when storage is unavailable
-    memoryPreference = value as UserPreference;
+    // persist in-memory when storage is unavailable; value is already
+    // typed as UserPreference so no cast is required here.
+    memoryPreference = value;
   }
 }
 
@@ -48,10 +49,15 @@ const NEXT_PREFERENCE: Record<UserPreference, UserPreference> = {
 
 function getSystemTheme(): Theme {
   if (typeof window === 'undefined') return 'light';
-  return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+  try {
+    return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+  } catch {
+    // MatchMedia unavailable (e.g. jsdom without mock) — default to light
+    return 'light';
+  }
 }
 
-function isValidPreference(value: string | null | undefined): value is UserPreference {
+function isValidPreference(value: unknown): value is UserPreference {
   return value === 'light' || value === 'dark' || value === 'system';
 }
 
@@ -89,6 +95,7 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
 
   // Listen for OS preference changes when in system mode
   useEffect(() => {
+    if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return;
     const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
     const handleChange = () => {
       if (preference === 'system') {
@@ -104,7 +111,19 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     setPreferenceState((prev) => NEXT_PREFERENCE[prev]);
   }, []);
 
+  // Validate input at the boundary: ignore invalid preferences rather than
+  // corrupting state or persisting an unsafe value. This keeps the public
+  // interface stable while enforcing the invariant that only light/dark/system
+  // can ever reach state or storage.
   const setTheme = useCallback((newPreference: UserPreference) => {
+    if (!isValidPreference(newPreference)) {
+      if (process.env.NODE_ENV !== 'production') {
+        // Diagnosable without exposing the raw value in production logs.
+        // eslint-disable-next-line no-console
+        console.warn('useTheme.setTheme ignored an invalid theme preference');
+      }
+      return;
+    }
     setPreferenceState(newPreference);
     safeSetItem(THEME_STORAGE_KEY, newPreference);
   }, []);

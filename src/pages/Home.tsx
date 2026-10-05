@@ -4,6 +4,47 @@ import { WalletConnectButton } from '../components/Wallet/WalletConnectButton'
 import { Zap } from 'lucide-react'
 import { VaultIcon, MilestoneIcon, TimeLockIcon, TreasuryIcon } from '../components/icons'
 
+/**
+ * Home page invariants:
+ * - The page is a pure presentational component: it must never throw during render,
+ *   regardless of auth / wallet state. All navigation links are static and
+ *   deterministic.
+ * - The hero must always expose exactly one H1 and one primary CTA targeting
+ *   /vaults/create so the entry point is discoverable and accessible.
+ * - Wallet connection failures are isolated to the WalletConnectButton and
+ *   must not cascade into the rest of the page.
+ */
+
+const PRIMARY_CTA_PATH = '/vaults/create'
+const SECONDARY_LINKS = [
+  { label: 'Dashboard', to: '/dashboard' },
+  { label: 'My Vaults', to: '/vaults' },
+] as const
+
+const HOW_IT_WORKS = [
+  {
+    icon: Zap,
+    title: '1. Connect Your Wallet',
+    body: 'Link your Stellar wallet securely to get started.',
+  },
+  {
+    icon: TimeLockIcon,
+    title: '2. Create a Vault',
+    body: 'Deposit USDC and set your success milestones.',
+  },
+  {
+    icon: MilestoneIcon,
+    title: '3. Achieve or Redirect',
+    body: 'Funds release on success or redirect automatically.',
+  },
+] as const
+
+const TRUST_SIGNALS = [
+  { icon: VaultIcon, label: 'Audited Smart Contracts' },
+  { icon: TimeLockIcon, label: 'Non-Custodial' },
+  { icon: TreasuryIcon, label: 'Instant Settlements' },
+] as const
+
 export default function Home() {
   return (
     <div style={{ maxWidth: '1200px', margin: '0 auto', padding: 'var(--spacing-4)' }}>
@@ -20,7 +61,7 @@ export default function Home() {
         </Text>
         <div style={{ display: 'flex', justifyContent: 'center', gap: 'var(--spacing-4)', flexWrap: 'wrap', marginBottom: 'var(--spacing-4)' }}>
           <Link
-            to="/vaults/create"
+            to={PRIMARY_CTA_PATH}
             style={{
               backgroundColor: 'var(--accent)',
               color: 'white',
@@ -32,28 +73,20 @@ export default function Home() {
           >
             Create Your First Vault
           </Link>
-          <Link
-            to="/dashboard"
-            style={{
-              color: 'var(--accent)',
-              textDecoration: 'none',
-              fontWeight: 500,
-              fontSize: 'var(--font-size-body)',
-            }}
-          >
-            Dashboard
-          </Link>
-          <Link
-            to="/vaults"
-            style={{
-              color: 'var(--accent)',
-              textDecoration: 'none',
-              fontWeight: 500,
-              fontSize: 'var(--font-size-body)',
-            }}
-          >
-            My Vaults
-          </Link>
+          {SECONDARY_LINKS.map((link) => (
+            <Link
+              key={link.to}
+              to={link.to}
+              style={{
+                color: 'var(--accent)',
+                textDecoration: 'none',
+                fontWeight: 500,
+                fontSize: 'var(--font-size-body)',
+              }}
+            >
+              {link.label}
+            </Link>
+          ))}
         </div>
       </section>
 
@@ -63,39 +96,25 @@ export default function Home() {
           How It Works
         </Text>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(250px, 1fr))', gap: 'var(--spacing-6)' }}>
-          <div style={{ textAlign: 'center', padding: 'var(--spacing-6)', border: '1px solid var(--border)', borderRadius: 'var(--radius)' }}>
-            <div style={{ marginBottom: 'var(--spacing-4)' }}>
-              <Zap size={32} style={{ color: 'var(--accent)' }} />
-            </div>
-            <Text role="subtitle" as="h3" style={{ marginBottom: 'var(--spacing-2)' }}>
-              1. Connect Your Wallet
-            </Text>
-            <Text role="body" as="p" style={{ color: 'var(--muted)' }}>
-              Link your Stellar wallet securely to get started.
-            </Text>
-          </div>
-          <div style={{ textAlign: 'center', padding: 'var(--spacing-6)', border: '1px solid var(--border)', borderRadius: 'var(--radius)' }}>
-            <div style={{ marginBottom: 'var(--spacing-4)' }}>
-              <TimeLockIcon size={32} style={{ color: 'var(--accent)' }} />
-            </div>
-            <Text role="subtitle" as="h3" style={{ marginBottom: 'var(--spacing-2)' }}>
-              2. Create a Vault
-            </Text>
-            <Text role="body" as="p" style={{ color: 'var(--muted)' }}>
-              Deposit USDC and set your success milestones.
-            </Text>
-          </div>
-          <div style={{ textAlign: 'center', padding: 'var(--spacing-6)', border: '1px solid var(--border)', borderRadius: 'var(--radius)' }}>
-            <div style={{ marginBottom: 'var(--spacing-4)' }}>
-              <MilestoneIcon size={32} style={{ color: 'var(--accent)' }} />
-            </div>
-            <Text role="subtitle" as="h3" style={{ marginBottom: 'var(--spacing-2)' }}>
-              3. Achieve or Redirect
-            </Text>
-            <Text role="body" as="p" style={{ color: 'var(--muted)' }}>
-              Funds release on success or redirect automatically.
-            </Text>
-          </div>
+          {HOW_IT_WORKS.map((step) => {
+            const Icon = step.icon
+            return (
+              <div
+                key={step.title}
+                style={{ textAlign: 'center', padding: 'var(--spacing-6)', border: '1px solid var(--border)', borderRadius: 'var(--radius)' }}
+              >
+                <div style={{ marginBottom: 'var(--spacing-4)' }}>
+                  <Icon size={32} style={{ color: 'var(--accent)' }} />
+                </div>
+                <Text role="subtitle" as="h3" style={{ marginBottom: 'var(--spacing-2)' }}>
+                  {step.title}
+                </Text>
+                <Text role="body" as="p" style={{ color: 'var(--muted)' }}>
+                  {step.body}
+                </Text>
+              </div>
+            )
+          })}
         </div>
       </section>
 
@@ -122,7 +141,7 @@ export default function Home() {
             </Text>
           </div>
         </div>
-        <details style={{ marginTop: 'var(--spacing-4)' }}>
+        <details open={false} style={{ marginTop: 'var(--spacing-4)' }}>
           <summary style={{ cursor: 'pointer', fontWeight: 500, color: 'var(--accent)' }}>
             Learn more about Stellar and Soroban
           </summary>
@@ -138,18 +157,20 @@ export default function Home() {
           Trusted & Secure
         </Text>
         <div style={{ display: 'flex', justifyContent: 'center', gap: 'var(--spacing-8)', flexWrap: 'wrap', marginBottom: 'var(--spacing-4)' }}>
-          <div style={{ padding: 'var(--spacing-4)', border: '1px solid var(--border)', borderRadius: 'var(--radius)' }}>
-            <VaultIcon size={24} style={{ color: 'var(--success)' }} />
-            <Text role="body" as="p" style={{ marginTop: 'var(--spacing-2)' }}>Audited Smart Contracts</Text>
-          </div>
-          <div style={{ padding: 'var(--spacing-4)', border: '1px solid var(--border)', borderRadius: 'var(--radius)' }}>
-            <TimeLockIcon size={24} style={{ color: 'var(--success)' }} />
-            <Text role="body" as="p" style={{ marginTop: 'var(--spacing-2)' }}>Non-Custodial</Text>
-          </div>
-          <div style={{ padding: 'var(--spacing-4)', border: '1px solid var(--border)', borderRadius: 'var(--radius)' }}>
-            <TreasuryIcon size={24} style={{ color: 'var(--success)' }} />
-            <Text role="body" as="p" style={{ marginTop: 'var(--spacing-2)' }}>Instant Settlements</Text>
-          </div>
+          {TRUST_SIGNALS.map((signal) => {
+            const Icon = signal.icon
+            return (
+              <div
+                key={signal.label}
+                style={{ padding: 'var(--spacing-4)', border: '1px solid var(--border)', borderRadius: 'var(--radius)' }}
+              >
+                <Icon size={24} style={{ color: 'var(--success)' }} />
+                <Text role="body" as="p" style={{ marginTop: 'var(--spacing-2)' }}>
+                  {signal.label}
+                </Text>
+              </div>
+            )
+          })}
         </div>
         <Text role="body" as="p" style={{ color: 'var(--muted)', maxWidth: '600px', margin: '0 auto' }}>
           Disciplr leverages Stellar's proven infrastructure, used by organizations worldwide for secure financial operations.

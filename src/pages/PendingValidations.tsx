@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { CountdownDeadline } from '../components/CountdownDeadline';
 import { ConfirmationModal } from '../components/ConfirmationModal';
@@ -11,6 +11,19 @@ import { filterPending } from '../utils/filterPending';
 import { sortPending, type PendingSortKey, type SortDirection } from '../utils/sortPending';
 import { daysRemaining } from '../utils/dashboard';
 import { useCurrentTime } from '../hooks/useCurrentTime';
+
+/**
+ * Invariants enforced by this page:
+ * - Selection only ever contains ids that currently exist in `pendingValidations`.
+ * - Batch actions are idempotent: ids that no longer exist are dropped before dispatch,
+ *   and a submission is ignored while another batch action is in flight.
+ * - Filter changes reset selection so stale ids can never be acted upon.
+ * - The confirm handler is the single authorization gate for batch decisions; it
+ *   validates the decision, the notes payload, and the current selection snapshot.
+ */
+const MAX_NOTES_LENGTH = 2000;
+
+type BatchDecision = 'approve' | 'reject';
 
 export default function PendingValidations() {
   const navigate = useNavigate();
@@ -35,8 +48,11 @@ export default function PendingValidations() {
   // Multi-select state for batch actions.
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [modalOpen, setModalOpen] = useState(false);
-  const [pendingDecision, setPendingDecision] = useState<'approve' | 'reject'>('approve');
+  const [pendingDecision, setPendingDecision] = useState<BatchDecision>('approve');
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [actionError, setActionError] = useState<string | null>(null);
   const selectAllRef = useRef<HTMLInputElement>(null);
+  const submitLockRef = useRef(false);
 
   // Get unique milestones from all pending validations
   const availableMilestones = useMemo(() => {
@@ -61,9 +77,11 @@ export default function PendingValidations() {
   useEffect(() => {
     setSelectedIds((prev) => {
       if (searchQuery || selectedMilestone) {
-        return [];
+        return prev.length === 0 ? prev : [];
       }
 
+      // Drop ids that no longer exist in the queue (stale selection after
+      // concurrent updates, batch completion, or external store mutations).
       const next = prev.filter((id) => pendingValidations.some((t) => t.id === id));
       return next.length === prev.length ? prev : next;
     });
@@ -73,6 +91,13 @@ export default function PendingValidations() {
   const allSelected = allIds.length > 0 && allIds.every((id) => selectedIds.includes(id));
   const someSelected = selectedIds.length > 0 && !allSelected;
 
+  // Selection must never reference ids outside the current queue. This is a
+  // defense-in-depth check in case a caller mutates the store between renders.
+  const validSelectedIds = useMemo(() => {
+    const queueIds = new Set(pendingValidations.map((t) => t.id));
+    return selectedIds.filter((id) => queueIds.has(id));
+  }, [pendingValidations, selectedIds]);
+
   // Native checkboxes expose "indeterminate" only via the DOM property.
   useEffect(() => {
     if (selectAllRef.current) {
@@ -81,6 +106,9 @@ export default function PendingValidations() {
   }, [someSelected]);
 
   const toggleOne = (id: string) => {
+    if (!pendingValidations.some((t) => t.id === id)) {
+      return;
+    }
     setSelectedIds((prev) =>
       prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id],
     );
@@ -90,23 +118,74 @@ export default function PendingValidations() {
     setSelectedIds(allSelected ? [] : allIds);
   };
 
-  const openBatch = (decision: 'approve' | 'reject') => {
-    if (selectedIds.length === 0) return;
+  const openBatch = (decision: BatchDecision) => {
+    if (isSubmitting) return;
+    if (validSelectedIds.length === 0) return;
+    setActionError(null);
     setPendingDecision(decision);
     setModalOpen(true);
   };
 
-  const handleConfirm = (decision: 'approve' | 'reject', notes: string) => {
-    if (decision === 'approve') {
-      batchApprove(selectedIds, notes);
-    } else {
-      batchReject(selectedIds, notes);
-    }
-    setSelectedIds([]);
+  const closeModal = useCallback(() => {
+    if (submitLockRef.current) return;
     setModalOpen(false);
-  };
+    setActionError(null);
+  }, []);
 
-  const hasSelection = selectedIds.length > 0;
+  const handleConfirm = useCallback(
+    (decision: BatchDecision, notes: string) => {
+      // Guard against duplicate/concurrent submissions from rapid clicks or
+      // double-fired modal events. The ref is synchronous so it closes the
+      // race window that state-based guards leave open.
+      if (submitLockRef.current) return;
+
+      if (decision !== 'approve' && decision !== 'reject') {
+        setActionError('Unsupported decision.');
+        return;
+      }
+
+      const trimmedNotes = typeof notes === 'string' ? notes.trim() : '';
+      if (trimmedNotes.length > MAX_NOTES_LENGTH) {
+        setActionError(`Notes must be ${MAX_NOTES_LENGTH} characters or fewer.`);
+        return;
+      }
+
+      // Snapshot and re-validate against the live queue so ids removed by a
+      // concurrent update cannot be approved/rejected.
+      const queueIds = new Set(pendingValidations.map((t) => t.id));
+      const targetIds = validSelectedIds.filter((id) => queueIds.has(id));
+      if (targetIds.length === 0) {
+        setActionError('No valid validations selected.');
+        setSelectedIds([]);
+        setModalOpen(false);
+        return;
+      }
+
+      submitLockRef.current = true;
+      setIsSubmitting(true);
+      setActionError(null);
+
+      try {
+        if (decision === 'approve') {
+          batchApprove(targetIds, trimmedNotes);
+        } else {
+          batchReject(targetIds, trimmedNotes);
+        }
+        setSelectedIds([]);
+        setModalOpen(false);
+      } catch (err) {
+        // Surface a diagnosable, non-sensitive error and keep the modal open
+        // so the user can retry without losing their selection.
+        setActionError('Unable to complete the batch action. Please retry.');
+      } finally {
+        submitLockRef.current = false;
+        setIsSubmitting(false);
+      }
+    },
+    [batchApprove, batchReject, pendingValidations, validSelectedIds],
+  );
+
+  const hasSelection = validSelectedIds.length > 0 && !isSubmitting;
   const sortLabel = sortDir === 'asc' ? 'Ascending' : 'Descending';
   const handleHeaderSort = (key: PendingSortKey) => {
     if (sortKey === key) {
@@ -166,6 +245,17 @@ export default function PendingValidations() {
       </header>
 
       <VerifierMetricsBar metrics={metrics} />
+
+      {actionError && (
+        <div
+          role="alert"
+          aria-live="polite"
+          className="rounded border px-4 py-3 text-sm"
+          style={{ borderColor: 'var(--danger)', color: 'var(--danger)', background: 'var(--danger-transparent)' }}
+        >
+          {actionError}
+        </div>
+      )}
 
       <section
         aria-label="Pending validation filters"
@@ -329,7 +419,7 @@ export default function PendingValidations() {
         style={{ background: 'var(--bg)', borderColor: 'var(--border)' }}
       >
         <Text role="body" as="span" className="text-sm" style={{ color: 'var(--muted)' }}>
-          {selectedIds.length} selected
+          {validSelectedIds.length} selected
         </Text>
         <div className="flex gap-3">
           <button
@@ -346,17 +436,17 @@ export default function PendingValidations() {
             className="px-4 py-2 text-sm font-bold rounded transition disabled:opacity-40 disabled:cursor-not-allowed"
             style={{ background: 'var(--success)', color: 'white' }}
           >
-            Approve Selected
+            {isSubmitting ? 'Processing…' : 'Approve Selected'}
           </button>
         </div>
       </div>
 
       <ConfirmationModal
         isOpen={modalOpen}
-        onClose={() => setModalOpen(false)}
+        onClose={closeModal}
         onConfirm={handleConfirm}
         initialDecision={pendingDecision}
-        affectedCount={selectedIds.length}
+        affectedCount={validSelectedIds.length}
       />
     </div>
   );

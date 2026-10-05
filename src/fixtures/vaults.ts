@@ -168,6 +168,7 @@ export const MASTER_VAULTS: Record<string, Vault> = {
         description: "First milestone",
         criteria: "Criteria met",
         status: "validated",
+        validatedAt: daysFromNow(-30),
       },
       {
         id: "m2",
@@ -222,7 +223,6 @@ export const MASTER_VAULTS: Record<string, Vault> = {
         description: "First deliverable",
         criteria: "Submitted and under review",
         status: "pending",
-        evidenceUrl: "https://example.com/evidence/1",
       },
     ],
     transactions: [

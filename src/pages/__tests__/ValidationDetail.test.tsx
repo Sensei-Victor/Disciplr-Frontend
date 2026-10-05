@@ -678,4 +678,206 @@ describe('ValidationDetail Page', () => {
     fireEvent.click(screen.getByLabelText('Criterion B'));
     expect(screen.getByRole('button', { name: /Approve Milestone/i })).not.toBeDisabled();
   });
+
+  describe('Failure Path & Boundary Coverage', () => {
+    it('handles undefined or null pendingValidations store state gracefully', () => {
+      mockStore({
+        pendingValidations: undefined,
+        approveValidation: mockApproveValidation,
+        rejectValidation: mockRejectValidation,
+      });
+
+      render(
+        <MemoryRouter initialEntries={['/verifier/v-101']}>
+          <ValidationDetail />
+        </MemoryRouter>
+      );
+
+      expect(screen.getByText('Validation Not Found')).toBeInTheDocument();
+    });
+
+    it('handles whitespace-only or empty vaultId by showing Validation Not Found', () => {
+      mockVaultId = '   ';
+      render(
+        <MemoryRouter initialEntries={['/verifier/   ']}>
+          <ValidationDetail />
+        </MemoryRouter>
+      );
+
+      expect(screen.getByText('Validation Not Found')).toBeInTheDocument();
+    });
+
+    it('handles invalid deadline date string without throwing NaN', () => {
+      mockStore({
+        pendingValidations: [{ ...mockPendingValidations[0], deadline: 'invalid-date' }],
+        approveValidation: mockApproveValidation,
+        rejectValidation: mockRejectValidation,
+      });
+
+      render(
+        <MemoryRouter initialEntries={['/verifier/v-101']}>
+          <ValidationDetail />
+        </MemoryRouter>
+      );
+
+      expect(screen.getByText('Deadline: 0 days remaining')).toBeInTheDocument();
+    });
+
+    it('deduplicates duplicate criteria strings and enables approval when all unique criteria are checked', () => {
+      mockStore({
+        pendingValidations: [
+          {
+            ...mockPendingValidations[0],
+            criteria: ['Criterion A', 'Criterion A', 'Criterion B', '   '],
+          },
+        ],
+        approveValidation: mockApproveValidation,
+        rejectValidation: mockRejectValidation,
+      });
+
+      render(
+        <MemoryRouter initialEntries={['/verifier/v-101']}>
+          <ValidationDetail />
+        </MemoryRouter>
+      );
+
+      // Should render unique non-empty criteria
+      const criterionACheckboxes = screen.getAllByLabelText('Criterion A');
+      expect(criterionACheckboxes.length).toBe(1);
+
+      expect(screen.getByRole('button', { name: /Approve Milestone/i })).toBeDisabled();
+
+      fireEvent.click(screen.getByLabelText('Criterion A'));
+      fireEvent.click(screen.getByLabelText('Criterion B'));
+
+      expect(screen.getByRole('button', { name: /Approve Milestone/i })).not.toBeDisabled();
+    });
+
+    it('prevents approval when criteria gate is closed even if approval action is triggered', () => {
+      mockStore({
+        pendingValidations: mockPendingWithCriteria,
+        approveValidation: mockApproveValidation,
+        rejectValidation: mockRejectValidation,
+      });
+
+      render(
+        <MemoryRouter initialEntries={['/verifier/v-101']}>
+          <ValidationDetail />
+        </MemoryRouter>
+      );
+
+      // Trigger reject modal to get modal open, then switch decision to approve
+      fireEvent.click(screen.getByText('Reject Milestone'));
+      const modal = screen.getByRole('dialog');
+      const approveBtnInModal = within(modal).getByRole('button', { name: /Approve/i });
+      fireEvent.click(approveBtnInModal);
+
+      const confirmBtn = screen.getByRole('button', { name: /Confirm Approve/i });
+      fireEvent.click(confirmBtn);
+
+      expect(mockApproveValidation).not.toHaveBeenCalled();
+      expect(screen.getByRole('alert')).toHaveTextContent(/milestone criteria gate is not open|all criteria must be completed/i);
+    });
+
+    it('displays error alert and recovers gracefully when approveValidation throws an error', async () => {
+      const failingApprove = vi.fn().mockImplementation(() => {
+        throw new Error('On-chain RPC connection failed');
+      });
+
+      mockStore({
+        pendingValidations: mockPendingValidations,
+        approveValidation: failingApprove,
+        rejectValidation: mockRejectValidation,
+      });
+
+      render(
+        <MemoryRouter initialEntries={['/verifier/v-101']}>
+          <ValidationDetail />
+        </MemoryRouter>
+      );
+
+      fireEvent.click(screen.getByText('Approve Milestone'));
+      fireEvent.click(screen.getByRole('button', { name: /Confirm Approve/i }));
+
+      expect(failingApprove).toHaveBeenCalledWith('v-101', '');
+      expect(mockNavigate).not.toHaveBeenCalled();
+
+      const alert = await screen.findByRole('alert');
+      expect(alert).toHaveTextContent('On-chain RPC connection failed');
+
+      // Dismiss error
+      fireEvent.click(screen.getByRole('button', { name: /Dismiss error/i }));
+      expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    });
+
+    it('handles async rejection failure and retains notes draft for retry', async () => {
+      let rejectPromiseReject: (reason?: unknown) => void;
+      const failingAsyncReject = vi.fn().mockImplementation(() => {
+        return new Promise((_, reject) => {
+          rejectPromiseReject = reject;
+        });
+      });
+
+      mockStore({
+        pendingValidations: mockPendingValidations,
+        approveValidation: mockApproveValidation,
+        rejectValidation: failingAsyncReject,
+      });
+
+      render(
+        <MemoryRouter initialEntries={['/verifier/v-101']}>
+          <ValidationDetail />
+        </MemoryRouter>
+      );
+
+      const notesInput = screen.getByPlaceholderText(/Start adding your review notes here/i);
+      fireEvent.change(notesInput, { target: { value: 'Incomplete proof details.' } });
+
+      fireEvent.click(screen.getByText('Reject Milestone'));
+      fireEvent.click(screen.getByRole('button', { name: /Confirm Reject/i }));
+
+      await act(async () => {
+        rejectPromiseReject!(new Error('Network request timed out'));
+      });
+
+      const alert = await screen.findByRole('alert');
+      expect(alert).toHaveTextContent('Network request timed out');
+      expect(notesInput).toHaveValue('Incomplete proof details.');
+    });
+
+    it('prevents concurrent double-submission during in-flight action', async () => {
+      let resolveAction: (val: unknown) => void;
+      const slowAction = vi.fn().mockImplementation(() => {
+        return new Promise((resolve) => {
+          resolveAction = resolve;
+        });
+      });
+
+      mockStore({
+        pendingValidations: mockPendingValidations,
+        approveValidation: slowAction,
+        rejectValidation: mockRejectValidation,
+      });
+
+      render(
+        <MemoryRouter initialEntries={['/verifier/v-101']}>
+          <ValidationDetail />
+        </MemoryRouter>
+      );
+
+      fireEvent.click(screen.getByText('Approve Milestone'));
+      const confirmBtn = screen.getByRole('button', { name: /Confirm Approve/i });
+
+      // Click once
+      fireEvent.click(confirmBtn);
+      // Click again while in-flight
+      fireEvent.click(confirmBtn);
+
+      expect(slowAction).toHaveBeenCalledTimes(1);
+
+      await act(async () => {
+        resolveAction!(true);
+      });
+    });
+  });
 });

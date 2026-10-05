@@ -318,6 +318,16 @@
   margin-top: 0.25rem;
 }
 
+.wallet-dropdown-error {
+  color: var(--danger);
+  font-size: 0.75rem;
+  line-height: 1.4;
+  margin-top: 0.5rem;
+  padding: 0.25rem 0.5rem;
+  background: var(--danger-transparent);
+  border-radius: var(--radius-sm);
+}
+
 .wallet-dropdown-actions {
   padding: 0.5rem;
 }

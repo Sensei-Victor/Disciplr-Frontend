@@ -1,6 +1,6 @@
-﻿import { CountdownDeadline, timeRemaining } from './CountdownDeadline';
+import { CountdownDeadline, timeRemaining } from './CountdownDeadline';
 import { Text } from './Text';
-import { deadlineUrgency, type UrgencyTier } from './VaultCard';
+import { deadlineUrgency, type UrgencyTier } from '../utils/vaultUrgency';
 import type { Deadline } from '../utils/dashboard';
 import { downloadIcsEvent, isValidIcsDeadline } from '../utils/ics';
 

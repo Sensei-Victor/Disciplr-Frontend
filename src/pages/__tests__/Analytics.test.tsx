@@ -1,5 +1,5 @@
 import React, { Suspense, lazy, act } from 'react'
-import { describe, expect, it, vi, beforeAll } from 'vitest'
+import { describe, expect, it, vi, beforeAll, afterEach } from 'vitest'
 import { render, screen, waitFor, fireEvent } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { buildAnalyticsSeriesColors } from '../analyticsTheme'
@@ -42,10 +42,13 @@ vi.mock('recharts', () => ({
   Line: () => null,
 }))
 
+const mockSave = vi.fn()
+const mockText = vi.fn()
+
 vi.mock('jspdf', () => ({
   default: class {
-    text() {}
-    save() {}
+    text = mockText
+    save = mockSave
     addImage() {}
     rect() {}
     line() {}
@@ -223,6 +226,24 @@ describe('Analytics lazy route', () => {
     )
   })
 
+  it('generates and saves PDF report with correct filename and title', async () => {
+    const { default: LazyLoadedAnalytics } = await import('../Analytics')
+
+    render(
+      <MemoryRouter initialEntries={['/analytics?period=7d']}>
+        <LazyLoadedAnalytics />
+      </MemoryRouter>,
+    )
+
+    const pdfBtn = screen.getByRole('button', { name: /pdf report/i })
+    fireEvent.click(pdfBtn)
+
+    await waitFor(() => {
+      expect(mockSave).toHaveBeenCalledWith('disciplr-report-7d.pdf')
+    })
+    expect(mockText).toHaveBeenCalledWith('Disciplr Analytics Report', 14, 18)
+  })
+
   it('shows the tokenized chart legend when comparison mode is enabled', async () => {
     const { default: LazyLoadedAnalytics } = await import('../Analytics')
 
@@ -375,6 +396,160 @@ describe('Analytics memoization stability', () => {
 
     // Trigger unrelated re-render (toggle comparison)
     fireEvent.click(screen.getByRole('button', { name: /compare periods/i }))
+
+    await waitFor(() => expect(screen.getByText('Prev Period %')).toBeInTheDocument())
+
+    // KPI values should remain stable for the same period
+    expect(screen.getAllByText('Total Capital Locked').length).toBeGreaterThan(0)
+  })
+})
+
+describe('Analytics failure-path and boundary coverage', () => {
+  afterEach(() => {
+    vi.restoreAllMocks()
+  })
+
+  it('falls back to the default period when the query param is invalid', async () => {
+    render(
+      <MemoryRouter initialEntries={['/analytics?period=not-a-period']}>
+        <Analytics />
+      </MemoryRouter>,
+    )
+
+    await waitFor(() => expect(screen.getByText('Analytics')).toBeInTheDocument())
+
+    // Invalid period should not activate any period button; default 30d remains active
+    expect(screen.getByRole('button', { name: '30d' })).toHaveClass('active')
+    expect(screen.queryByRole('button', { name: 'not-a-period' })).toBeNull()
+  })
+
+  it('ignores duplicate period selections without corrupting state', async () => {
+    render(
+      <MemoryRouter initialEntries={['/analytics?period=7d']}>
+        <Analytics />
+      </MemoryRouter>,
+    )
+
+    await waitFor(() => expect(screen.getByText('Analytics')).toBeInTheDocument())
+
+    const sevenDay = screen.getByRole('button', { name: '7d' })
+    expect(sevenDay).toHaveClass('active')
+
+    // Selecting the already-active period must be idempotent
+    fireEvent.click(sevenDay)
+    fireEvent.click(sevenDay)
+
+    await waitFor(() => expect(screen.getByRole('button', { name: '7d' })).toHaveClass('active'))
+    expect(screen.getByRole('button', { name: '30d' })).not.toHaveClass('active')
+  })
+
+  it('recovers gracefully when PDF export fails', async () => {
+    const jspdf = await import('jspdf')
+    const OriginalCtor = (jspdf as any).default
+
+    class FailingPdf {
+      constructor() {
+        throw new Error('pdf init failed')
+      }
+    }
+
+    ;(jspdf as any).default = FailingPdf
+
+    try {
+      render(
+        <MemoryRouter>
+          <Analytics />
+        </MemoryRouter>,
+      )
+
+      const pdfBtn = screen.getByRole('button', { name: /pdf report/i })
+      fireEvent.click(pdfBtn)
+
+      // Button must return to an interactive state after the failure
+      await waitFor(
+        () => expect(screen.getByRole('button', { name: /pdf report/i })).not.toBeDisabled(),
+        { timeout: 2000 },
+      )
+    } finally {
+      ;(jspdf as any).default = OriginalCtor
+    }
+  })
+
+  it('handles empty period data without throwing and restores on populated data', async () => {
+    const original7d = analyticsPeriodData['7d']
+    analyticsPeriodData['7d'] = []
+
+    try {
+      render(
+        <MemoryRouter initialEntries={['/analytics?period=7d']}>
+          <Analytics />
+        </MemoryRouter>,
+      )
+
+      await waitFor(() =>
+        expect(screen.getAllByTestId('analytics-empty-state').length).toBeGreaterThan(0),
+        { timeout: 2000 },
+      )
+
+      await act(async () => {
+        fireEvent.click(screen.getByRole('button', { name: '30d' }))
+      })
+
+      await waitFor(() => {
+        expect(screen.queryByTestId('analytics-empty-state')).not.toBeInTheDocument()
+        expect(screen.getByText('Success Rate Over Time')).toBeInTheDocument()
+      }, { timeout: 2000 })
+    } finally {
+      analyticsPeriodData['7d'] = original7d
+    }
+  })
+
+  it('does not leak sensitive data into rendered error output', async () => {
+    const original30d = analyticsPeriodData['30d']
+    analyticsPeriodData['30d'] = []
+
+    try {
+      render(
+        <MemoryRouter>
+          <Analytics />
+        </MemoryRouter>,
+      )
+
+      await waitFor(() =>
+        expect(screen.getAllByTestId('analytics-empty-state').length).toBeGreaterThan(0),
+        { timeout: 2000 },
+      )
+
+      const body = document.body.textContent ?? ''
+      expect(body).not.toMatch(/0x[a-fA-F0-9]{40}/)
+      expect(body).not.toMatch(/private[_-]?key/i)
+    } finally {
+      analyticsPeriodData['30d'] = original30d
+    }
+  })
+
+  it('keeps concurrent period switches deterministic', async () => {
+    render(
+      <MemoryRouter initialEntries={['/analytics?period=30d']}>
+        <Analytics />
+      </MemoryRouter>,
+    )
+
+    await waitFor(() => expect(screen.getByText('Analytics')).toBeInTheDocument())
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: '7d' }))
+      fireEvent.click(screen.getByRole('button', { name: '90d' }))
+      fireEvent.click(screen.getByRole('button', { name: '30d' }))
+    })
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: '30d' })).toHaveClass('active')
+      expect(screen.getByRole('button', { name: '7d' })).not.toHaveClass('active')
+      expect(screen.getByRole('button', { name: '90d' })).not.toHaveClass('active')
+    })
+  })
+}).click(screen.getByRole('button', { name: /compare periods/i }))
 
     await waitFor(() => expect(screen.getByText('Prev Period %')).toBeInTheDocument())
 

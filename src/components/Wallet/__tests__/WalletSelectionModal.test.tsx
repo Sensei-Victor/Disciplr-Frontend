@@ -124,6 +124,35 @@ describe('WalletSelectionModal', () => {
         expect(screen.getByText('Wallet access denied.')).toBeInTheDocument();
     });
 
+    test('does not call onClose and shows error when network error occurs', async () => {
+        walletState.connect.mockImplementation(() => {
+            walletState.error = 'Network error connecting to wallet.';
+            return Promise.resolve(false);
+        });
+        const onClose = vi.fn();
+        const { rerender } = render(<WalletSelectionModal onClose={onClose} />);
+
+        await act(async () => {
+            screen.getByText('Freighter').closest('button')!.click();
+        });
+
+        expect(onClose).not.toHaveBeenCalled();
+        rerender(<WalletSelectionModal onClose={onClose} />);
+        expect(screen.getByText('Network error connecting to wallet.')).toBeInTheDocument();
+    });
+
+    test('does not call onClose if connect throws an unexpected error', async () => {
+        walletState.connect.mockRejectedValue(new Error('Unexpected wallet failure'));
+        const onClose = vi.fn();
+        render(<WalletSelectionModal onClose={onClose} />);
+
+        await act(async () => {
+            screen.getByText('Freighter').closest('button')!.click();
+        });
+
+        expect(onClose).not.toHaveBeenCalled();
+    });
+
     test('prevents multiple connect calls on double click', async () => {
         let resolveConnect: (value: boolean) => void;
         walletState.connect.mockImplementation(() => new Promise((resolve) => {

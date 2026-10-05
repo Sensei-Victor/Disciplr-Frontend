@@ -124,8 +124,51 @@ describe('NavLink', () => {
   });
 
   it('partial prefix of to does NOT make to active (to is the prefix, not the path)', () => {
-    // current path "/vault" does not start with "/vaults"
     renderNav('/vaults', '/vault');
     expect(screen.getByRole('link')).not.toHaveClass('active');
+  });
+
+  it('is active when to is an object with search and hash parameters', () => {
+    render(
+      <MemoryRouter initialEntries={['/vaults/detail']}>
+        <NavLink to={{ pathname: '/vaults', search: '?tab=overview', hash: '#summary' }}>Link</NavLink>
+      </MemoryRouter>,
+    );
+    const link = screen.getByRole('link');
+    expect(link).toHaveClass('active');
+    expect(link).toHaveAttribute('aria-current', 'page');
+  });
+
+  it('is inactive when object to has undefined pathname', () => {
+    render(
+      <MemoryRouter initialEntries={['/dashboard']}>
+        <NavLink to={{ pathname: undefined }}>Link</NavLink>
+      </MemoryRouter>,
+    );
+    const link = screen.getByRole('link');
+    expect(link).not.toHaveClass('active');
+    expect(link).not.toHaveAttribute('aria-current');
+  });
+
+  it('is inactive when object to has empty pathname', () => {
+    render(
+      <MemoryRouter initialEntries={['/dashboard']}>
+        <NavLink to={{ pathname: '' }}>Link</NavLink>
+      </MemoryRouter>,
+    );
+    const link = screen.getByRole('link');
+    expect(link).not.toHaveClass('active');
+    expect(link).not.toHaveAttribute('aria-current');
+  });
+
+  it('is inactive on root path when object to has undefined pathname', () => {
+    render(
+      <MemoryRouter initialEntries={['/']}>
+        <NavLink to={{ pathname: undefined }}>Link</NavLink>
+      </MemoryRouter>,
+    );
+    const link = screen.getByRole('link');
+    expect(link).not.toHaveClass('active');
+    expect(link).not.toHaveAttribute('aria-current');
   });
 });

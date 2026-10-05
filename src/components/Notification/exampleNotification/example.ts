@@ -1,5 +1,99 @@
-export function getNotifications() {
-  const notifications = [
+export interface Notification {
+  id: string;
+  type: string;
+  isUrgent: boolean;
+  title: string;
+  message: string;
+  timestamp: string;
+  isRead: boolean;
+  category: string;
+}
+
+export interface Vault {
+  name: string;
+}
+
+/**
+ * Authorization and validation invariants for the notification example module.
+ *
+ * The example module is used by demo/storybook pages and tests. It must return
+ * deterministic, immutable data so that consumers cannot accidentally mutate
+ * shared state between renders or tests. The following invariants are enforced:
+ *
+ *  1. Every notification has a non-empty, unique id matching /^ntf_\d+$/.
+ *  2. Every notification type is a non-empty string.
+ *  3. Timestamps are valid ISO 8601 strings.
+ *  4. isUrgent and isRead are booleans.
+ *  5. Returned arrays are deeply frozen so callers cannot mutate shared state.
+ *  6. Calls are deterministic and idempotent: repeated calls return equivalent
+ *     data with the same ordering.
+ */
+
+const NOTIFICATION_ID_PATTERN = /^ntf_\d+$/;
+
+function deepFreeze<T>(value: T): Readonly<T> {
+  if (value && typeof value === "object" && !Object.isFrozen(value)) {
+    Object.freeze(value);
+    for (const key of Object.keys(value as object)) {
+      deepFreeze((value as Record<string, unknown>)[key]);
+    }
+  }
+  return value as Readonly<T>;
+}
+
+function assertNotificationInvariants(
+  notifications: ReadonlyArray<Notification>,
+): void {
+  const seenIds = new Set<string>();
+
+  for (const n of notifications) {
+    if (!n || typeof n !== "object") {
+      throw new Error("Notification entry must be an object.");
+    }
+
+    if (typeof n.id !== "string" || !NOTIFICATION_ID_PATTERN.test(n.id)) {
+      throw new Error(
+        `Notification id must match ${NOTIFICATION_ID_PATTERN.source}, received: ${String(n.id)}`,
+      );
+    }
+
+    if (seenIds.has(n.id)) {
+      throw new Error(`Duplicate notification id: ${n.id}`);
+    }
+    seenIds.add(n.id);
+
+    if (typeof n.type !== "string" || n.type.length === 0) {
+      throw new Error(`Notification ${n.id} has an invalid type.`);
+    }
+
+    if (typeof n.title !== "string" || n.title.length === 0) {
+      throw new Error(`Notification ${n.id} has an invalid title.`);
+    }
+
+    if (typeof n.message !== "string" || n.message.length === 0) {
+      throw new Error(`Notification ${n.id} has an invalid message.`);
+    }
+
+    if (typeof n.category !== "string" || n.category.length === 0) {
+      throw new Error(`Notification ${n.id} has an invalid category.`);
+    }
+
+    if (typeof n.isUrgent !== "boolean") {
+      throw new Error(`Notification ${n.id} has an invalid isUrgent flag.`);
+    }
+
+    if (typeof n.isRead !== "boolean") {
+      throw new Error(`Notification ${n.id} has an invalid isRead flag.`);
+    }
+
+    if (typeof n.timestamp !== "string" || Number.isNaN(Date.parse(n.timestamp))) {
+      throw new Error(`Notification ${n.id} has an invalid timestamp.`);
+    }
+  }
+}
+
+const NOTIFICATIONS: ReadonlyArray<Notification> = deepFreeze(
+  [
     {
       id: "ntf_001",
       type: "vault_deadline_approaching",
@@ -48,7 +142,7 @@ export function getNotifications() {
       type: "milestone_validated",
       isUrgent: false,
       title: "Milestone Validated",
-      message: "Great news! 'Frontend UI Kit' milestone has been approved.",
+      message: "Great news! 'Frontend UI It' milestone has been approved.",
       timestamp: "2026-04-24T04:00:00Z",
       isRead: false,
       category: "milestone",
@@ -205,14 +299,24 @@ export function getNotifications() {
       isRead: true,
       category: "funds",
     },
-  ];
-  return notifications;
+  ],
+);
+
+assertNotificationInvariants(NOTIFICATIONS);
+
+/**
+ * Returns the canonical list of example notifications.
+ *
+ * The returned array is deeply frozen and the same reference is returned on
+ * every call, so callers cannot mutate shared state and repeated calls are
+ * deterministic.
+ */
+export function getNotifications(): ReadonlyArray<Notification> {
+  return NOTIFICATIONS;
 }
 
-export const vaults = [
+export const vaults: ReadonlyArray<Vault> = deepFreeze([
   { name: "First Vault" },
   { name: "Second Vault" },
   { name: "Third Vault" },
-];
-
-
+]);

@@ -11,13 +11,9 @@ export default defineConfig({
   },
   test: {
     globals: true,
+    environment: 'jsdom',
     setupFiles: './src/setupTests.ts',
     include: ['src/**/*.test.{ts,tsx}'],
-    // Pure TS util tests run in node; TSX component tests use jsdom for RTL/DOM.
-    environmentMatchGlobs: [
-      ['src/**/*.test.tsx', 'jsdom'],
-      ['src/**/*.test.ts', 'node'],
-    ],
     coverage: {
       reporter: ['text', 'html', 'json-summary'],
       reportsDirectory: './coverage',

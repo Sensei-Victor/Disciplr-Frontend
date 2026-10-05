@@ -92,13 +92,17 @@ datetime-local string already in the correct format and always in the future.
 | Attribute | Detail |
 |---|---|
 | **Helper** | `isValidStellarAddress(address: string): boolean` |
-| **Regex** | `^G[A-Z2-7]{55}$` |
+| **Shape check** | `^[GC][A-Z2-7]{55}$` |
+| **Encoding check** | Decode 35 Base32 bytes: a supported account/contract version byte, 32-byte payload, and a valid little-endian CRC16-XModem checksum |
 | **Normalisation** | `.trim()` before testing |
 | **Error key** | `errors.successAddress` |
-| **Error message** | `'Enter a valid Stellar public key starting with G.'` |
+| **Error message** | `'Enter a valid Stellar public key starting with G or C.'` |
 
-A valid Stellar Ed25519 public key is a 56-character Base32 string starting
-with `G`.
+A valid Stellar address is a 56-character Base32 StrKey starting with `G`
+(Ed25519 account) or `C` (contract). Matching the length and character set is
+insufficient: `isValidStellarAddress` verifies the full version byte and the
+CRC16-XModem checksum over the version and payload, as defined by
+[SEP-23](https://github.com/stellar/stellar-protocol/blob/master/ecosystem/sep-0023.md).
 
 ### 2.4 `failureAddress` — Failure Destination
 
@@ -106,7 +110,7 @@ Validated in two sequential passes:
 
 | Pass | Rule | Error message |
 |---|---|---|
-| 1 | Must satisfy `isValidStellarAddress` | `'Enter a valid Stellar public key starting with G.'` |
+| 1 | Must satisfy `isValidStellarAddress` | `'Enter a valid Stellar public key starting with G or C.'` |
 | 2 (only if pass 1 succeeds) | Must differ from `successAddress` (after trimming both) | `'Failure destination must be different from success destination.'` |
 
 | `errors.failureAddress` key | Trigger |
@@ -121,7 +125,7 @@ Validated in two sequential passes:
 
 | Export | Signature | Purpose |
 |---|---|---|
-| `isValidStellarAddress` | `(address: string) → boolean` | Tests the Stellar public key regex |
+| `isValidStellarAddress` | `(address: string) → boolean` | Verifies account/contract StrKey encoding, version and checksum |
 | `isValidUsdcAmount` | `(amount: string) → boolean` | Tests the USDC amount regex and positivity |
 | `isFutureDeadline` | `(deadline: string, now?: Date) → boolean` | Tests that the deadline is parseable and in the future |
 | `validateCreateVault` | `(values, now?) → CreateVaultErrors` | Runs all field rules; returns an error object |

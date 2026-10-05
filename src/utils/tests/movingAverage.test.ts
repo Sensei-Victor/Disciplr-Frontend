@@ -2,50 +2,43 @@ import { describe, it, expect } from 'vitest';
 import { movingAverage } from '../movingAverage';
 
 describe('movingAverage', () => {
-  it('returns an empty array for an empty input series', () => {
+  it('should return an empty array when given an empty array', () => {
     expect(movingAverage([], 3)).toEqual([]);
   });
 
-  it('returns the single value unchanged for a one-element series', () => {
-    expect(movingAverage([42], 3)).toEqual([42]);
+  it('should handle a single value', () => {
+    expect(movingAverage([5], 3)).toEqual([5]);
   });
 
-  it('acts as the identity function when window is 1', () => {
-    const values = [10, 20, 30, 40];
+  it('should act as identity when window is 1', () => {
+    const values = [1, 2, 3, 4, 5];
     expect(movingAverage(values, 1)).toEqual(values);
   });
 
-  it('treats window <= 0 the same as window = 1 (identity)', () => {
-    const values = [5, 15, 25];
+  it('should treat window <= 0 as window = 1', () => {
+    const values = [10, 20, 30];
     expect(movingAverage(values, 0)).toEqual(values);
-    expect(movingAverage(values, -3)).toEqual(values);
+    expect(movingAverage(values, -2)).toEqual(values);
   });
 
-  it('uses partial windows when window exceeds the series length', () => {
-    // window (10) > values.length (4): every point averages over
-    // all values available up to that index (cumulative average).
-    const values = [2, 4, 6, 8];
-    const result = movingAverage(values, 10);
-    expect(result).toEqual([
-      2,          // [2]
-      3,          // avg(2,4)
-      4,          // avg(2,4,6)
-      5,          // avg(2,4,6,8)
-    ]);
+  it('should handle window greater than array length', () => {
+    const values = [2, 4, 6];
+    // Window 5 on [2, 4, 6]:
+    // i=0: [2] -> 2
+    // i=1: [2, 4] -> 3
+    // i=2: [2, 4, 6] -> 4
+    expect(movingAverage(values, 5)).toEqual([2, 3, 4]);
   });
 
-  it('computes a trailing average with partial windows at the start for a typical series', () => {
-    // window = 3, series longer than window:
-    // idx0: avg([1])          = 1
-    // idx1: avg([1,2])        = 1.5
-    // idx2: avg([1,2,3])      = 2
-    // idx3: avg([2,3,4]) trailing full window = 3
-    // idx4: avg([3,4,5]) trailing full window = 4
-    const values = [1, 2, 3, 4, 5];
-    const result = movingAverage(values, 3);
-    expect(result).toEqual([1, 1.5, 2, 3, 4]);
+  it('should compute a typical multi-point series with partial windows at the start', () => {
+    const values = [10, 20, 30, 40, 50, 60];
+    // Window 3 on [10, 20, 30, 40, 50, 60]:
+    // i=0: [10] -> 10
+    // i=1: [10, 20] -> 15
+    // i=2: [10, 20, 30] -> 20
+    // i=3: [20, 30, 40] -> 30
+    // i=4: [30, 40, 50] -> 40
+    // i=5: [40, 50, 60] -> 50
+    expect(movingAverage(values, 3)).toEqual([10, 15, 20, 30, 40, 50]);
   });
 });
-
-
-

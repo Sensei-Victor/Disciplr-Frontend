@@ -16,10 +16,48 @@ import {
  * matching the unit framer-motion uses in its `duration` prop.
  */
 function parseDurationToSeconds(value: string): number {
-  if (value.endsWith('ms')) return parseFloat(value) / 1000;
-  if (value.endsWith('s'))  return parseFloat(value);
-  throw new Error(`Unrecognised duration unit in token: "${value}"`);
+  if (typeof value !== 'string') {
+    throw new Error(`Expected string duration, got ${typeof value}`);
+  }
+  let parsed: number;
+  if (value.endsWith('ms')) {
+    parsed = parseFloat(value) / 1000;
+  } else if (value.endsWith('s')) {
+    parsed = parseFloat(value);
+  } else {
+    throw new Error(`Unrecognised duration unit in token: "${value}"`);
+  }
+  if (Number.isNaN(parsed)) {
+    throw new Error(`Invalid numeric value in token: "${value}"`);
+  }
+  return parsed;
 }
+
+describe('parseDurationToSeconds', () => {
+  it('parses valid ms and s values', () => {
+    expect(parseDurationToSeconds('300ms')).toBe(0.3);
+    expect(parseDurationToSeconds('0.5s')).toBe(0.5);
+    expect(parseDurationToSeconds('0s')).toBe(0);
+  });
+
+  it('throws on invalid or missing units', () => {
+    expect(() => parseDurationToSeconds('300')).toThrow(/Unrecognised duration unit/);
+    expect(() => parseDurationToSeconds('300m')).toThrow(/Unrecognised duration unit/);
+    expect(() => parseDurationToSeconds('')).toThrow(/Unrecognised duration unit/);
+  });
+
+  it('throws on invalid numeric prefixes', () => {
+    expect(() => parseDurationToSeconds('ms')).toThrow(/Invalid numeric value/);
+    expect(() => parseDurationToSeconds('abcms')).toThrow(/Invalid numeric value/);
+  });
+
+  it('throws on non-string inputs', () => {
+    // @ts-expect-error testing invalid input
+    expect(() => parseDurationToSeconds(300)).toThrow(/Expected string/);
+    // @ts-expect-error testing invalid input
+    expect(() => parseDurationToSeconds(null)).toThrow(/Expected string/);
+  });
+});
 
 // Load the token file once for the entire module.
 // Resolving relative to the project root keeps this test independent of cwd.
@@ -331,5 +369,15 @@ describe('module shape', () => {
           },
         }
       `);
+  });
+
+  it('keeps every token-backed duration and easing value finite', () => {
+    for (const value of Object.values(duration)) {
+      expect(Number.isFinite(value)).toBe(true);
+    }
+    for (const curve of Object.values(ease)) {
+      expect(curve).toHaveLength(4);
+      expect(curve.every((value) => Number.isFinite(value))).toBe(true);
+    }
   });
 });

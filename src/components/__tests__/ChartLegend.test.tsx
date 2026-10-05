@@ -192,4 +192,37 @@ describe('ChartLegend', () => {
       consoleSpy.mockRestore()
     }
   })
+
+  it('renders without duplicate-key warnings when entries share a label and omit ids', () => {
+    const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+
+    try {
+      render(
+        <ChartLegend
+          entries={[
+            { label: 'Metric A', colorKey: 'success' },
+            { label: 'Metric A', colorKey: 'failed' },
+            { label: 'Metric A', colorKey: 'comparison' },
+          ]}
+          colors={{ success: '#059669', failed: '#DC2626', comparison: '#2563EB', milestone: '#0A7668', active: '#2563EB', warning: '#D97706', platform: '#4B5563' }}
+          tokens={tokens}
+        />,
+      )
+
+      // Assert no React duplicate-key warning was logged
+      const duplicateKeyWarnings = consoleSpy.mock.calls.filter(
+        (call) => call[0]?.toString?.().includes('duplicate key'),
+      )
+      expect(duplicateKeyWarnings).toHaveLength(0)
+
+      // Verify all three items rendered correctly despite duplicate labels
+      const legendItems = screen.getByLabelText('Chart legend').querySelectorAll('li')
+      expect(legendItems).toHaveLength(3)
+
+      const textElements = Array.from(screen.getAllByText('Metric A'))
+      expect(textElements.length).toBe(3)
+    } finally {
+      consoleSpy.mockRestore()
+    }
+  })
 })

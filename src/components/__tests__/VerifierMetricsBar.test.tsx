@@ -162,6 +162,7 @@ describe('VerifierMetricsBar', () => {
     expect(screen.getByText(new RegExp(`≤ ${CRITICAL_DAYS_THRESHOLD} days to deadline`))).toBeInTheDocument();
   });
 
+  // ── threshold tracking ───────────────────────────────────────────────────
   it('updates copy when threshold changes', async () => {
     vi.doMock('../../utils/verifierMetrics', async (importOriginal) => {
       const actual = await importOriginal<typeof import('../../utils/verifierMetrics')>();

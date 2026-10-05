@@ -1,5 +1,6 @@
 import React from "react";
 import { Tooltip } from "./Tooltip";
+import { logger } from "../utils/logger";
 
 export type ChipStatus =
   | "active"
@@ -73,6 +74,13 @@ const SIZE_STYLES = {
   lg: { padding: "4px 12px", fontSize: "14px" },
 };
 
+/**
+ * Renders an accessible status chip badge with semantic styling.
+ *
+ * @param props Component properties including status, optional label override,
+ * tooltip, size, and className.
+ * @returns An accessible badge element wrapped in a Tooltip.
+ */
 export const StatusChip: React.FC<StatusChipProps> = ({
   status,
   label,
@@ -80,14 +88,26 @@ export const StatusChip: React.FC<StatusChipProps> = ({
   size = "md",
   className = "",
 }) => {
-  const config = STATUS_CONFIG[status] ?? STATUS_CONFIG.cancelled;
+  const isKnown = Boolean(
+    status && Object.prototype.hasOwnProperty.call(STATUS_CONFIG, status)
+  );
+
+  if (!isKnown) {
+    logger.warn(`Unrecognized status encountered in StatusChip: "${String(status)}"`);
+  }
+
+  const config = isKnown
+    ? STATUS_CONFIG[status]
+    : {
+        defaultLabel: status ? String(status) : "Unknown",
+        color: "var(--muted)",
+        bg: "color-mix(in srgb, var(--muted) 10%, transparent)",
+        description: status ? `Unknown status: ${String(status)}` : "Unknown status",
+      };
+
   const sizeStyle = SIZE_STYLES[size];
   const displayLabel = label ?? config.defaultLabel;
   const tooltipContent = tooltip ?? config.description;
-  
-  // Only make focusable if a custom tooltip was explicitly provided.
-  // The aria-label already exposes the status to screen readers, so keyboard
-  // users don't need a tab stop just to read the default description.
   const shouldBeFocusable = tooltip !== undefined;
 
   const chip = (

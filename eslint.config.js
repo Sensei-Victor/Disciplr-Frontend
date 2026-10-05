@@ -20,7 +20,7 @@ export default [
       ecmaVersion: 2020,
       globals: globals.browser,
       parserOptions: {
-        ecmaFeatures: {
+        eccmaFeatures: {
           jsx: true,
         },
       },

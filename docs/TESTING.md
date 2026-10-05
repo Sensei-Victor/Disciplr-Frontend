@@ -206,7 +206,6 @@ const initialNotifications = getNotifications()
 function resetStore() {
   useNotification.setState({
     notification: initialNotifications,
-    unreadCount: initialNotifications.filter((n) => !n.isRead).length,
   })
 }
 
@@ -214,6 +213,10 @@ beforeEach(() => {
   resetStore()
 })
 ```
+
+> **Note:** `unreadCount` is not a stored state field — it is a computed selector
+> (`useUnreadCount`) derived from `notification.filter(n => !n.isRead).length`.
+> Do not include it in `setState` calls.
 
 If you mock a Zustand hook, clear the mock and provide a fresh return value in
 `beforeEach`, as shown in `src/pages/__tests__/PendingValidations.test.tsx`.

@@ -37,6 +37,13 @@ The chip uses `color-mix` to automatically generate transparent background color
 | `approved` | Approved | `var(--success)` | `color-mix(in srgb, var(--success) 10%, transparent)` |
 | `rejected` | Rejected | `var(--danger)` | `color-mix(in srgb, var(--danger) 10%, transparent)` |
 
+### Unknown Status Fallback
+
+When an unmapped status value outside `ChipStatus` is passed at runtime:
+- The chip renders as a neutral gray chip using `var(--muted)` and `color-mix(in srgb, var(--muted) 10%, transparent)`.
+- The default label and aria-label display the raw status string (or `'Unknown'` if empty).
+- A warning is emitted via `logger.warn` to make mapping issues immediately visible rather than silently falling back to `'Cancelled'`.
+
 ## Shared status types (`src/types/vault.ts`)
 
 The status unions consumed by `StatusChip` and the vault pages live in a single

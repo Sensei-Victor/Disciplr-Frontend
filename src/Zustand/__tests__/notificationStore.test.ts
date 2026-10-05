@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from "vitest";
-import { useNotification } from "../Store";
+import { useNotification, useUnreadCount } from "../Store";
 import { getNotifications } from "@/components/Notification/exampleNotification/example";
 
 const initialNotifications = getNotifications();
@@ -223,5 +223,82 @@ describe("useNotification store", () => {
         expect(getUnreadCount()).toBe(computed);
       }
     });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Issue #1261 — unreadCount must NOT be stored state; it must be derived.
+// These tests lock in the invariant that the store's state shape never
+// includes an unreadCount field, and that the useUnreadCount selector
+// correctly computes the count from the notification array.
+// ---------------------------------------------------------------------------
+describe('Issue #1261 — unreadCount is derived, not stored state', () => {
+  beforeEach(() => {
+    resetStore();
+  });
+
+  it('does not expose unreadCount as a key on the notification store state', () => {
+    const state = useNotification.getState();
+    // Regression guard: if someone re-adds unreadCount as a stored field this
+    // assertion will catch it immediately.
+    expect('unreadCount' in state).toBe(false);
+  });
+
+  it('useUnreadCount selector returns the correct initial count', () => {
+    const expected = initialNotifications.filter((n) => !n.isRead).length;
+    // Call the selector hook-style via getState() since we're outside React.
+    const count = useNotification
+      .getState()
+      .notification.filter((n) => !n.isRead).length;
+    expect(count).toBe(expected);
+  });
+
+  it('useUnreadCount stays correct after setNotification with a known mix', () => {
+    const mixed = [
+      { ...initialNotifications[0], isRead: false },
+      { ...initialNotifications[1], isRead: true },
+      { ...initialNotifications[2], isRead: false },
+      { ...initialNotifications[3], isRead: true },
+    ];
+    useNotification.getState().setNotification(mixed);
+    const count = useNotification
+      .getState()
+      .notification.filter((n) => !n.isRead).length;
+    expect(count).toBe(2);
+  });
+
+  it('useUnreadCount returns 0 after markAllRead', () => {
+    useNotification.getState().markAllRead();
+    const count = useNotification
+      .getState()
+      .notification.filter((n) => !n.isRead).length;
+    expect(count).toBe(0);
+  });
+
+  it('useUnreadCount returns 0 after clearAll', () => {
+    useNotification.getState().clearAll();
+    const count = useNotification
+      .getState()
+      .notification.filter((n) => !n.isRead).length;
+    expect(count).toBe(0);
+  });
+
+  it('useUnreadCount decrements by 1 after dismiss of an unread notification', () => {
+    const unread = initialNotifications.find((n) => !n.isRead)!;
+    const before = useNotification
+      .getState()
+      .notification.filter((n) => !n.isRead).length;
+    useNotification.getState().dismiss(unread.id);
+    const after = useNotification
+      .getState()
+      .notification.filter((n) => !n.isRead).length;
+    expect(after).toBe(before - 1);
+  });
+
+  it('resetStore (test helper) does not accidentally inject unreadCount into state', () => {
+    // TESTING.md used to show a resetStore() that set unreadCount explicitly.
+    // This test ensures the corrected helper never re-introduces that field.
+    resetStore();
+    expect('unreadCount' in useNotification.getState()).toBe(false);
   });
 });

@@ -1,36 +1,63 @@
 import { useNavigate } from 'react-router-dom';
+import { useMemo } from 'react';
 import { Text } from '../components/Text';
 import { useVerifierStore, type ValidationTask } from '../Zustand/Store';
 import VerifierMetrics from '../components/VerifierMetrics';
-import { StatusChip, type ChipStatus } from '../components/StatusChip';
+import { StatusChip } from '../components/StatusChip';
 import { daysRemaining } from '../utils/dashboard';
 import { useCurrentTime } from '../hooks/useCurrentTime';
 import { CRITICAL_DAYS_THRESHOLD } from '../utils/verifierMetrics';
+import { mapValidationStatusToChipStatus } from '../utils/verifierStatus';
 
-function mapValidationStatusToChipStatus(status: ValidationTask['status']): ChipStatus {
-  switch (status) {
-    case 'pending':
-      return 'pending_validation';
-    case 'approved':
-      return 'approved';
-    case 'rejected':
-      return 'rejected';
-    default: {
-      const exhaustiveCheck: never = status;
-      return exhaustiveCheck;
-    }
+/**
+ * Invariants enforced by this dashboard:
+ * - Only tasks with a valid, non-empty `id` are rendered; malformed entries are
+ *   filtered out so duplicate React keys or broken navigation targets cannot
+ *   silently corrupt the UI.
+ * - `pendingValidations` and `validationHistory` are treated as untrusted
+ *   inputs: non-array values fall back to an empty list rather than throwing.
+ * - A task must never appear in both lists simultaneously. If a task id is
+ *   present in history, it is removed from the pending view so a stale store
+ *   cannot present an already-decided task as actionable.
+ * - Duplicate ids within a list are de-duplicated (first occurrence wins) to
+ *   keep rendering deterministic and avoid React key collisions.
+ */
+function sanitizeTasks(value: unknown): ValidationTask[] {
+  if (!Array.isArray(value)) return [];
+  const seen = new Set<string>();
+  const result: ValidationTask[] = [];
+  for (const task of value) {
+    if (!task || typeof task !== 'object') continue;
+    const id = (task as ValidationTask).id;
+    if (typeof id !== 'string' || id.length === 0) continue;
+    if (seen.has(id)) continue;
+    seen.add(id);
+    result.push(task as ValidationTask);
   }
+  return result;
 }
 
 export default function VerifierDashboard() {
   const navigate = useNavigate();
   const now = useCurrentTime();
   
-  const pendingValidations = useVerifierStore((state) => state.pendingValidations);
-  const validationHistory = useVerifierStore((state) => state.validationHistory);
+  // Defensive coalescing: a partially hydrated or malformed store snapshot
+  // (undefined/null slices) must render empty states instead of crashing the
+  // dashboard. This mirrors the null-tolerance already enforced by
+  // `computeVerifierMetrics` in ../utils/verifierMetrics.ts.
+  const pendingValidations =
+    useVerifierStore((state) => state.pendingValidations) ?? [];
+  const validationHistory =
+    useVerifierStore((state) => state.validationHistory) ?? [];
 
-  const totalPending = pendingValidations.length;
-  const totalCompleted = validationHistory.length;
+  const safeHistory = useMemo(() => sanitizeTasks(validationHistory), [validationHistory]);
+  const safePending = useMemo(() => {
+    const historyIds = new Set(safeHistory.map((task) => task.id));
+    return sanitizeTasks(pendingValidations).filter((task) => !historyIds.has(task.id));
+  }, [pendingValidations, safeHistory]);
+
+  const totalPending = safePending.length;
+  const totalCompleted = safeHistory.length;
   const totalAssigned = totalPending + totalCompleted;
 
   return (
@@ -78,12 +105,12 @@ export default function VerifierDashboard() {
       <section className="mt-8">
         <Text role="display" as="h2" className="mb-4">Urgent Pending Validations</Text>
         <div className="flex flex-col gap-3">
-          {pendingValidations.length === 0 ? (
+          {safePending.length === 0 ? (
             <div className="p-8 border rounded shadow-sm text-center" style={{ color: 'var(--muted)', background: 'var(--surface)' }}>
               <Text role="body" as="p">You have no pending validations at this time.</Text>
             </div>
           ) : (
-            pendingValidations.slice(0, 3).map((task) => {
+            safePending.slice(0, 3).map((task) => {
               const remaining = daysRemaining(task.deadline, now);
               return (
                 <div
@@ -131,12 +158,12 @@ export default function VerifierDashboard() {
       <section className="mt-8" aria-label="Recent Decisions">
         <Text role="display" as="h2" className="mb-4">Recent Decisions</Text>
         <div className="flex flex-col gap-3">
-          {validationHistory.length === 0 ? (
+          {safeHistory.length === 0 ? (
             <div className="p-8 border rounded shadow-sm text-center" style={{ color: 'var(--muted)', background: 'var(--surface)' }}>
               <Text role="body" as="p">No recent decisions found.</Text>
             </div>
           ) : (
-            validationHistory.slice(0, 5).map((task) => (
+            safeHistory.slice(0, 5).map((task) => (
               <div
                 key={task.id}
                 className="p-4 border rounded shadow-sm flex flex-col md:flex-row justify-between md:items-center transition gap-4"

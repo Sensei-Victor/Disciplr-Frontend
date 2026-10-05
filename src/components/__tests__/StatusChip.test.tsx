@@ -1,6 +1,8 @@
 import React from 'react';
 import { render, screen } from '@testing-library/react';
+import { vi } from 'vitest';
 import { StatusChip, ChipStatus } from '../StatusChip';
+import { logger } from '../../utils/logger';
 import '@testing-library/jest-dom';
 
 describe('StatusChip Component', () => {
@@ -55,12 +57,49 @@ describe('StatusChip Component', () => {
     unmountLg();
   });
 
-  it('falls back gracefully to cancelled config on unknown status', () => {
-    // We suppress the console error for unknown status (TS would normally catch this, but in pure JS it might happen)
-    // @ts-expect-error - unknown status is intentionally exercised for fallback behavior
-    render(<StatusChip status="unknown_status" />);
-    const chip = screen.getByLabelText('Cancelled');
-    expect(chip).toHaveTextContent('Cancelled');
+  it('renders raw status string and warns on unknown status', () => {
+    const warnSpy = vi.spyOn(logger, 'warn').mockImplementation(() => {});
+    render(<StatusChip status={'unknown_status' as unknown as ChipStatus} />);
+    const chip = screen.getByLabelText('unknown_status');
+    expect(chip).toHaveTextContent('unknown_status');
+    expect(chip).toHaveStyle({ color: 'var(--muted)' });
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.stringContaining('unknown_status')
+    );
+    warnSpy.mockRestore();
+  });
+
+  it('renders unmapped runtime status like pending with raw string', () => {
+    const warnSpy = vi.spyOn(logger, 'warn').mockImplementation(() => {});
+    render(<StatusChip status={'pending' as unknown as ChipStatus} />);
+    const chip = screen.getByLabelText('pending');
+    expect(chip).toHaveTextContent('pending');
+    expect(chip).not.toHaveTextContent('Cancelled');
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.stringContaining('pending')
+    );
+    warnSpy.mockRestore();
+  });
+
+  it('allows overriding label on unknown status', () => {
+    const warnSpy = vi.spyOn(logger, 'warn').mockImplementation(() => {});
+    render(
+      <StatusChip
+        status={'unknown_status' as unknown as ChipStatus}
+        label="Custom Unknown"
+      />
+    );
+    const chip = screen.getByLabelText('Custom Unknown');
+    expect(chip).toHaveTextContent('Custom Unknown');
+    warnSpy.mockRestore();
+  });
+
+  it('falls back to Unknown when status is empty string', () => {
+    const warnSpy = vi.spyOn(logger, 'warn').mockImplementation(() => {});
+    render(<StatusChip status={'' as unknown as ChipStatus} />);
+    const chip = screen.getByLabelText('Unknown');
+    expect(chip).toHaveTextContent('Unknown');
+    warnSpy.mockRestore();
   });
 
   it('applies additional classNames correctly', () => {

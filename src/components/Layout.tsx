@@ -25,6 +25,24 @@ interface LayoutProps {
   children: React.ReactNode;
 }
 
+/**
+ * The drawer is a mobile-only surface driven by a pure reducer. The
+ * invariants this component must preserve are:
+ *
+ * 1. All transitions go through `reduceDrawerState`, so open/close/toggle
+ *    and recovery events are deterministic and idempotent.
+ * 2. Route changes close the drawer only when the pathname actually
+ *    changed, guarded by `shouldCloseDrawerOnRouteChange`.
+ * 3. Crossing into the desktop breakpoint forces the drawer closed so the
+ *    scroll lock is never left engaged behind a hidden drawer.
+ * 4. When the drawer is open, the rest of the app is hidden from assistive
+ *    technology and inert, so focus can never escape into background content.
+ */
+
+function isValidPathname(value: unknown): value is string {
+  return typeof value === "string" && value.length > 0 && value.startsWith("/");
+}
+
 export default function Layout({ children }: LayoutProps) {
   // All drawer transitions flow through the reducer so open/close/toggle and
   // the route-change/resize recovery events are deterministic and idempotent
@@ -35,18 +53,39 @@ export default function Layout({ children }: LayoutProps) {
   );
   const drawerIsOpen = isDrawerOpen(drawerState);
   const closeDrawer = useCallback(() => dispatchDrawer({ type: "CLOSE" }), []);
-  const toggleDrawer = () => dispatchDrawer({ type: "TOGGLE" });
+  const toggleDrawer = () => dispatchDrawer({ type: "TOGGLE"});
   const location = useLocation();
 
   // Deep-link / navigation recovery: close the drawer whenever the route
   // actually changes (in-app navigation, browser back/forward, deep links).
   // Guarded by shouldCloseDrawerOnRouteChange so a stale location object with
   // an unchanged pathname can never close a freshly opened drawer.
-  const prevPathnameRef = useRef(location.pathname);
+  //
+  // The previous pathname is normalized through `isValidPathname` so a
+  // malformed location (e.g. a missing or non-string pathname from a custom
+  // router or a test double) is treated as a new route rather than silently
+  // leaving the drawer open or closing it under stale state.
+  const prevPathnameRef = useRef<string | null>(
+    isValidPathname(location.pathname) ? location.pathname : null,
+  );
   useEffect(() => {
     const prevPathname = prevPathnameRef.current;
-    prevPathnameRef.current = location.pathname;
-    if (shouldCloseDrawerOnRouteChange(prevPathname, location.pathname)) {
+    const nextPathname = isValidPathname(location.pathname)
+      ? location.pathname
+      : null;
+    prevPathnameRef.current = nextPathname;
+
+    // A malformed pathname is a failure path: we treat it as a route change
+    // so the drawer cannot remain open over unknown content, but we never
+    // dispatch a close when both sides are unknown (idempotent no-op).
+    if (prevPathname === null && nextPathname === null) {
+      return;
+    }
+    if (prevPathname === null || nextPathname === null) {
+      dispatchDrawer({ type: "ROUTE_CHANGE" });
+      return;
+    }
+    if (shouldCloseDrawerOnRouteChange(prevPathname, nextPathname)) {
       dispatchDrawer({ type: "ROUTE_CHANGE" });
     }
   }, [location.pathname]);
@@ -61,18 +100,30 @@ export default function Layout({ children }: LayoutProps) {
     }
   }, [isDesktop]);
 
-  const backgroundA11yProps = drawerIsOpen
+  // Failure path: a drawer that is open while the viewport is already desktop
+  // would leave the scroll lock engaged with no way to close it via the
+  // mobile hamburger. The reducer is the source of truth, but we also derive
+  // the effective open state from `isDesktop` so a stale open state can never
+  // be observed by the DOM or by the assistive technology hiding logic.
+  const effectiveDrawerIsOpen = drawerIsOpen && !isDesktop;
+
+  const backgroundAccessibilityProps = effectiveDrawerIsOpen
     ? ({ "aria-hidden": true, inert: "" } as HTMLAttributes<HTMLElement> & {
         inert: "";
       })
     : {};
+
+  // The hamburger is only meaningful on mobile. On desktop it is hidden by CSS,
+  // but we also disable it so a keyboard user cannot open a drawer that the
+  // viewport will immediately force closed.
+  const hamburgerDisabled = isDesktop;
 
   return (
     <div
       style={{ minHeight: "100vh", display: "flex", flexDirection: "column" }}
     >
       <header className="site-header">
-        <div className="header-brand" {...backgroundA11yProps}>
+        <div className="header-brand" {...backgroundAccessibilityProps}>
           <Link to="/" className="header-link" aria-label="Disciplr home">
             <Text role="title" as="span">
               Disciplr
@@ -96,7 +147,7 @@ export default function Layout({ children }: LayoutProps) {
         <nav
           className="desktop-nav"
           aria-label="Main navigation"
-          {...backgroundA11yProps}
+          {...backgroundAccessibilityProps}
         >
           <div style={{ display: "flex", alignItems: "center", gap: "1rem" }}>
             <NavLink
@@ -176,7 +227,7 @@ export default function Layout({ children }: LayoutProps) {
             <WalletConnectButton />
           </div>
         </nav>
-        <div className="mobile-bell-wrapper" {...backgroundA11yProps}>
+        <div className="mobile-bell-wrapper" {...backgroundAccessibilityProps}>
           <NotificationBell />
           <ThemeToggle />
         </div>
@@ -185,17 +236,18 @@ export default function Layout({ children }: LayoutProps) {
           className="mobile-hamburger"
           aria-label="Open navigation menu"
           aria-controls="mobile-drawer"
-          aria-expanded={drawerIsOpen}
+          aria-expanded={effectiveDrawerIsOpen}
+          disabled={hamburgerDisabled}
           onClick={toggleDrawer}
         >
           <Menu size={24} aria-hidden="true" />
         </button>
-        <MobileDrawer isOpen={drawerIsOpen} onClose={closeDrawer} />
+        <MobileDrawer isOpen={effectiveDrawerIsOpen} onClose={closeDrawer} />
       </header>
       <TrustlineBanner />
 
       <main
-        {...backgroundA11yProps}
+        {...backgroundAccessibilityProps}
         style={{
           flex: 1,
           padding: "var(--spacing-8)",

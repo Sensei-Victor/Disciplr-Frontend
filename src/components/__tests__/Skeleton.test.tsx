@@ -1,4 +1,5 @@
 import { render, screen } from '@testing-library/react';
+import '@testing-library/jest-dom';
 import { describe, expect, it } from 'vitest';
 import Skeleton from '../Skeleton';
 
@@ -8,6 +9,7 @@ describe('Skeleton', () => {
     const el = screen.getByTestId('skeleton');
     expect(el).toBeInTheDocument();
     expect(el).toHaveClass('skeleton');
+    expect(el).not.toHaveClass('undefined');
   });
 
   it('renders with the skeleton base class plus any custom className merged in', () => {
@@ -20,3 +22,4 @@ describe('Skeleton', () => {
     expect(el).toHaveClass('rounded-full');
   });
 });
+

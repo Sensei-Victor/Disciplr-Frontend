@@ -154,13 +154,21 @@ describe('FundReleaseStatus', () => {
           destinationAddress="GSUCCESSDESTINATION1234567890"
           amount={100}
           currency="XLM"
+          transaction={{ hash: 'abc123def4', timestamp: '2026-01-01T00:00:00Z' }}
         />
       );
       expect(screen.getByRole('region', { name: /Fund settlement status/i })).toBeInTheDocument();
     });
 
     it("redirected outcome has accessible region label", () => {
-      render(<FundReleaseStatus outcome="redirected" amount={50} currency="XLM" />);
+      render(
+        <FundReleaseStatus
+          outcome="redirected"
+          amount={50}
+          currency="XLM"
+          transaction={{ hash: 'def456ab12', timestamp: '2026-01-01T00:00:00Z' }}
+        />
+      );
       expect(screen.getByRole('region', { name: /Fund settlement status/i })).toBeInTheDocument();
     });
 
@@ -173,10 +181,24 @@ describe('FundReleaseStatus', () => {
       const { rerender } = render(<FundReleaseStatus outcome="pending" amount={1} currency="XLM" />);
       expect(document.querySelector('.fund-release-status--pending')).not.toBeNull();
 
-      rerender(<FundReleaseStatus outcome="released" amount={1} currency="XLM" />);
+      rerender(
+        <FundReleaseStatus
+          outcome="released"
+          amount={1}
+          currency="XLM"
+          transaction={{ hash: 'ghi789ab12', timestamp: '2026-01-01T00:00:00Z' }}
+        />
+      );
       expect(document.querySelector('.fund-release-status--released')).not.toBeNull();
 
-      rerender(<FundReleaseStatus outcome="redirected" amount={1} currency="XLM" />);
+      rerender(
+        <FundReleaseStatus
+          outcome="redirected"
+          amount={1}
+          currency="XLM"
+          transaction={{ hash: 'jkl012ab12', timestamp: '2026-01-01T00:00:00Z' }}
+        />
+      );
       expect(document.querySelector('.fund-release-status--redirected')).not.toBeNull();
     });
   });
@@ -197,7 +219,9 @@ describe('FundReleaseStatus', () => {
     it('renders zero for a negative or non-finite amount', () => {
       render(<FundReleaseStatus outcome="pending" amount={-100} currency="USDC" />);
       expect(screen.getByText('0 USDC')).toBeInTheDocument();
+    });
 
+    it('renders zero for a non-finite amount', () => {
       render(<FundReleaseStatus outcome="pending" amount={NaN} currency="USDC" />);
       expect(screen.getByText('0 USDC')).toBeInTheDocument();
     });
@@ -217,7 +241,14 @@ describe('FundReleaseStatus', () => {
     it('logs a warning when a final outcome is missing a destination address', () => {
       const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
 
-      render(<FundReleaseStatus outcome="released" amount={100} currency="USDC" />);
+      render(
+        <FundReleaseStatus
+          outcome="released"
+          amount={100}
+          currency="USDC"
+          transaction={{ hash: 'abc123def4', timestamp: '2026-01-01T00:00:00Z' }}
+        />
+      );
 
       expect(warnSpy).toHaveBeenCalledWith(
         expect.stringContaining('[FundReleaseStatus] invariant violation'),
@@ -238,7 +269,6 @@ describe('FundReleaseStatus', () => {
           amount={100}
           currency="USDC"
           destinationAddress="GSUCCESSDESTINATION1234567890"
-          transaction={{ hash: 'somehash' }}
         />
       );
 
@@ -368,6 +398,7 @@ describe('FundReleaseStatus hostile input boundary', () => {
         destinationAddress="https://evil.example/steal"
         amount={100}
         currency="USDC"
+        transaction={{ hash: 'abc123', timestamp: '2026-01-01T00:00:00Z' }}
       />
     );
 
@@ -385,7 +416,7 @@ describe('FundReleaseStatus hostile input boundary', () => {
       />
     );
 
-    expect(screen.getByText(/Unavailable USDC/)).toBeInTheDocument();
+    expect(screen.getByText(/0 USDC/)).toBeInTheDocument();
   });
 
   it('renders an unknown currency symbol for hostile currency input', () => {
@@ -398,7 +429,7 @@ describe('FundReleaseStatus hostile input boundary', () => {
       />
     );
 
-    expect(screen.getByText(/100 UNKNOWN/)).toBeInTheDocument();
+    expect(screen.getByText((content) => content.includes('100') && content.includes('UNKNOWN'))).toBeInTheDocument();
   });
 
   it("renders 'Unknown' for an unparseable settlement timestamp", () => {
