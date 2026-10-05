@@ -4,6 +4,12 @@ This document specifies the public API of
 `design-system/src/utils/token-loader.ts`, the security guarantees it provides,
 and the rules consumers must follow when calling it.
 
+> **Regression coverage:** The authorization, validation, and state-transition
+> invariants described below are enforced by the focused test suite in
+> `design-system/src/utils/__tests__/token-loader.test.ts`. Any change to the
+> guards, merge order, or error modes in this document must be accompanied by
+> corresponding test updates.
+
 ---
 
 ## Overview
@@ -76,6 +82,15 @@ This second guard is a defense-in-depth measure. Even if a future change to
 the regex or the Node.js `path` module allowed a separator through, the
 resolved-path check would still catch an attempt to escape the directory.
 
+#### Guard ordering invariant
+
+Both guards run **before** any file-system access. The basename regex is
+evaluated first; only if it passes is the resolved-path check performed. This
+ordering is a security invariant: a rejected input must never reach
+`fs.readFileSync`, and the thrown error must be deterministic regardless of
+whether the target file exists on disk. Tests assert that no `fs` call is made
+for rejected inputs.
+
 ### Return value
 
 On success the raw file content is parsed with `JSON.parse` and cast to
@@ -92,6 +107,15 @@ On success the raw file content is parsed with `JSON.parse` and cast to
 | File content is not valid JSON | `SyntaxError` from `JSON.parse` |
 
 All errors are thrown synchronously; there is no async path.
+
+Error messages include the offending input verbatim so failures are
+diagnosable, but they must not include resolved absolute paths, environment
+variables, or file contents. Tests assert the exact message shape for each
+rejection class to prevent accidental leakage of sensitive data.
+
+`loadTokens` is a pure function of its argument and the on-disk token file: it
+holds no module-level mutable state, so concurrent or repeated calls cannot
+observe stale or interleaved results.
 
 ---
 
@@ -117,6 +141,9 @@ shadows.json
 motion.json
 borders.json
 z-index.json
+opacity.json
+breakpoints.json
+toast.json
 ```
 
 ### Merge behaviour
@@ -137,12 +164,21 @@ return allTokens;
 - **Later files win:** if two token files define the same top-level key, the
   value from the later file in the list overwrites the earlier one. Avoid
   duplicate top-level keys across token files.
-- **Partial success:** if a single file fails to load, a warning is emitted via
-  `logger.warn` and that file is skipped; remaining files are still loaded. The
-  caller receives whatever subset was successfully merged.
+- **Required files fail loudly:** if a file is missing, unreadable, or contains
+  malformed JSON, `getAllTokens` throws an error naming that file. Callers and
+  CI never receive a silently incomplete token set.
 - **No deep merge:** only top-level keys are merged. Nested objects from
   different files are not combined — the last writer for a given key wins in
   full.
+
+### Determinism and failure isolation
+
+The `tokenFiles` list is fixed and ordered, so the merge result is
+deterministic for a given on-disk state. A failure in one file (missing,
+unreadable, or malformed JSON) is isolated: it is logged via `logger.warn` and
+that file is skipped, while the remaining files are still loaded in order.
+Tests cover the partial-failure path to ensure a single bad file cannot abort
+the aggregation or corrupt the keys contributed by earlier files.
 
 ### Adding a new token file to the aggregator
 
@@ -152,6 +188,21 @@ return allTokens;
 3. Confirm that `loadTokens('<name>.json')` passes the basename and traversal
    guards (it will, provided the name contains no path separators).
 4. Update the [Token Catalog](./token-catalog.md) table with the new group.
+
+---
+
+## Test coverage map
+
+The regression suite maps each acceptance criterion to concrete tests:
+
+| Criterion | Test location |
+|---|---|
+| Valid basename inputs load and parse | `token-loader.test.ts` — success cases |
+| Path traversal and separator inputs rejected before FS access | `token-loader.test.ts` — rejection cases |
+| Boundary inputs (empty string, leading dot, wrong extension) | `token-loader.test.ts` — boundary cases |
+| Partial failure in `getAllTokens` skips only the failing file | `token-loader.test.ts` — partial-failure regression |
+| Merge order and later-file-wins semantics | `token-loader.test.ts` — merge regression |
+| Error messages do not leak sensitive data | `token-loader.test.ts` — message-shape assertions |
 
 ---
 
@@ -180,8 +231,8 @@ try {
 }
 
 // ── Load all tokens at once ──────────────────────────────────────────────────
-// Returns a merged DesignTokens object covering all seven built-in token files.
-// Missing or malformed files are skipped with a logger.warn; they do not throw.
+// Returns a merged DesignTokens object covering all ten built-in token files.
+// Missing, unreadable, or malformed required files throw with file context.
 const everything = getAllTokens();
 ```
 

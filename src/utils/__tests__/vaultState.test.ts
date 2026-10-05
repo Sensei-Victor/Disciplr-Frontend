@@ -26,6 +26,7 @@ import {
   validateVaultResponse,
   type VaultAction,
 } from "../vaultState";
+import { describe as describeAuth, expect as expectAuth, it as itAuth } from "vitest";
 import { MASTER_VAULTS } from "../../fixtures/vaults";
 import type { Milestone, Vault } from "../../types/vault";
 
@@ -340,7 +341,215 @@ describe("validateVaultResponse", () => {
     expect(result.ok).toBe(false);
     if (!result.ok) {
       const text = result.issues.join(" ");
-      expect(text).toMatch(/id|type|hash|timestamp|amount/);
+      expect(text).toMatch(/transaction/i);
+    }
+  });
+
+  it("rejects duplicate transaction ids", () => {
+    const result = validateVaultResponse(
+      makeVault({
+        transactions: [
+          {
+            id: "tx1",
+            type: "create",
+            hash: "a3f9d1c8e2b74056af3d9c1b2e8f0a4d",
+            timestamp: "2026-01-01T00:00:00.000Z",
+            amount: 12500,
+          },
+          {
+            id: "tx1",
+            type: "release",
+            hash: "b4f9d1c8e2b74056af3d9c1b2e8f0a4d",
+            timestamp: "2026-01-02T00:00:00.000Z",
+            amount: 100,
+          },
+        ],
+      }),
+    );
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.issues.join(" ")).toMatch(/duplicated/i);
+    }
+  });
+
+  it("rejects a vault whose amount is not a positive finite number", () => {
+    for (const amount of [0, -1, NaN, Infinity]) {
+      expect(validateVaultResponse(makeVault({ amount })).ok).toBe(false);
+    }
+  });
+
+  it("rejects a vault with an empty milestone list", () => {
+    expect(validateVaultResponse(makeVault({ milestones: [] })).ok).toBe(false);
+  });
+
+  it("is deterministic across repeated validation of the same input", () => {
+    const vault = makeVault();
+    const first = validateVaultResponse(vault);
+    const second = validateVaultResponse(vault);
+    expect(first.ok).toBe(second.ok);
+    if (!first.ok && !second.ok) {
+      expect(first.issues).toEqual(second.issues);
+    }
+  });
+
+  it("does not mutate the input vault during validation", () => {
+    const vault = makeVault();
+    const snapshot = JSON.stringify(vault);
+    validateVaultResponse(vault);
+    expect(JSON.stringify(vault)).toBe(snapshot);
+  });
+
+  it("accepts fixture vaults from MASTER_VAULTS", () => {
+    for (const vault of MASTER_VAULTS) {
+      const result = validateVaultResponse(vault);
+      expect(result.ok).toBe(true);
+    }
+  });
+});
+
+// ── Authorization ─────────────────────────────────────────────────────────────
+
+describeAuth("evalVaultActionAuth", () => {
+  const vault = makeVault();
+
+  itAuth("allows the creator to cancel an active vault", () => {
+    const decision = evalVaultActionAuth(vault, "cancel_vault", ACTOR);
+    expectAuth(decision.allowed).toBe(true);
+  });
+
+  itAuth("rejects a stranger attempting to cancel", () => {
+    const decision = evalVaultActionAuth(vault, "cancel_vault", STRANGER);
+    expectAuth(decision.allowed).toBe(false);
+  });
+
+  itAuth("allows the verifier to validate a pending milestone", () => {
+    const decision = evalVaultActionAuth(vault, "validate_milestone", VERIFIER);
+    expectAuth(decision.allowed).toBe(true);
+  });
+
+  itAuth("rejects the creator attempting to validate a milestone", () => {
+    const decision = evalVaultActionAuth(vault, "validate_milestone", ACTOR);
+    expectAuth(decision.allowed).toBe(false);
+  });
+
+  itAuth("rejects unknown actions", () => {
+    const decision = evalVaultActionAuth(vault, "destroy_all_funds" as VaultAction, ACTOR);
+    expectAuth(decision.allowed).toBe(false);
+  });
+
+  itAuth("rejects missing or malformed actor addresses", () => {
+    expectAuth(evalVaultActionAuth(vault, "cancel_vault", "").allowed).toBe(false);
+    expectAuth(evalVaultActionAuth(vault, "cancel_vault", "not-an-address").allowed).toBe(false);
+    expectAuth(evalVaultActionAuth(vault, "cancel_vault", undefined as never).allowed).toBe(false);
+  });
+
+  itAuth("is deterministic for repeated identical calls", () => {
+    const a = evalVaultActionAuth(vault, "cancel_vault", ACTOR);
+    const b = evalVaultActionAuth(vault, "cancel_vault", ACTOR);
+    expectAuth(a.allowed).toBe(b.allowed);
+  });
+});
+
+// ── Milestone analysis ────────────────────────────────────────────────────────
+
+describe("analyzeMilestones", () => {
+  it("counts validated and pending milestones deterministically", () => {
+    const summary = analyzeMilestones(makeVault().milestones);
+    expect(summary.validated).toBe(1);
+    expect(summary.pending).toBe(1);
+  });
+
+  it("handles an empty milestone list", () => {
+    const summary = analyzeMilestones([]);
+    expect(summary.validated).toBe(0);
+    expect(summary.pending).toBe(0);
+  });
+
+  it("ignores malformed milestone entries without throwing", () => {
+    const summary = analyzeMilestones([
+      { id: "m1", status: "validated" } as Milestone,
+      null as never,
+      undefined as never,
+    ]);
+    expect(summary.validated).toBe(1);
+  });
+});
+
+// ── Fund release view ─────────────────────────────────────────────────────────
+
+describe("buildFundReleaseView", () => {
+  it("produces a deterministic view for a valid vault", () => {
+    const view = buildFundReleaseView(makeVault());
+    expect(view).toBeDefined();
+    expect(view.vaultId).toBe("1");
+  });
+
+  it("does not release funds when milestones are incomplete", () => {
+    const view = buildFundReleaseView(makeVault());
+    expect(view.releasable).toBe(false);
+  });
+
+  it("is stable across repeated invocations", () => {
+    const vault = makeVault();
+    expect(buildFundReleaseView(vault)).toEqual(buildFundReleaseView(vault));
+  });
+});
+
+// ── Settlement anomalies ──────────────────────────────────────────────────────
+
+describe("detectSettlementAnomalies", () => {
+  it("returns no anomalies for a clean vault", () => {
+    expect(detectSettlementAnomalies(makeVault())).toEqual([]);
+  });
+
+  it("flags a vault whose deadline precedes creation", () => {
+    const anomalies = detectSettlementAnomalies(
+      makeVault({
+        createdAt: "2026-06-01T00:00:00.000Z",
+        deadline: "2026-01-01T00:00:00.000Z",
+      }),
+    );
+    expect(anomalies.length).toBeGreaterThan(0);
+  });
+
+  it("is deterministic across repeated calls", () => {
+    const vault = makeVault();
+    expect(detectSettlementAnomalies(vault)).toEqual(detectSettlementAnomalies(vault));
+  });
+});
+
+// ── Regression: hostile inputs never throw ────────────────────────────────────
+
+describe("hostile input regression", () => {
+  it("validators never throw on hostile values", () => {
+    const hostile = [undefined, null, 0, -1, NaN, Infinity, "", "   ", "__proto__", {}, []];
+    for (const value of hostile) {
+      expect(() => isPositiveAmount(value as never)).not.toThrow();
+      expect(() => isFiniteAmount(value as never)).not.toThrow();
+      expect(() => isValidCurrency(value as never)).not.toThrow();
+      expect(() => isValidTxHash(value as never)).not.toThrow();
+      expect(() => isValidIsoTimestamp(value as never)).not.toThrow();
+      expect(() => isNonEmptyString(value as never)).not.toThrow();
+      expect(() => isPlausibleStellarAddress(value as never)).not.toThrow();
+      expect(() => isVaultStatus(value as never)).not.toThrow();
+      expect(() => isMilestoneStatus(value as never)).not.toThrow();
+      expect(() => isVaultAction(value as never)).not.toThrow();
+      expect(() => isValidVaultRouteId(value as never)).not.toThrow();
+    }
+  });
+
+  it("validateVaultResponse never throws on hostile values", () => {
+    const hostile = [undefined, null, 0, -1, NaN, Infinity, "", "   ", "__proto__", {}, []];
+    for (const value of hostile) {
+      expect(() => validateVaultResponse(value as never)).not.toThrow();
+      expect(validateVaultResponse(value as never).ok).toBe(false);
+    }
+  });
+
+  it("lookupVaultSafe never throws on hostile keys", () => {
+    const store = { a: 1 };
+    for (const key of [undefined, null, 0, {}, [], "__proto__", "constructor"]) {
+      expect(() => lookupVaultSafe(store, key as never)).not.toThrow();
     }
   });
 

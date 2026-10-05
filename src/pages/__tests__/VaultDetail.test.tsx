@@ -1,3 +1,4 @@
+import { CONTRACT_ADDRESS } from '@/__tests__/fixtures/stellarAddresses';
 import {
   fireEvent,
   render,
@@ -302,6 +303,15 @@ describe("VaultDetail", () => {
     });
   });
 
+  it('hides the Add to calendar button when the deadline is invalid', async () => {
+    renderVaultDetail('2');
+
+    await screen.findByRole('heading', { name: 'Beta Reserve' });
+    expect(
+      screen.queryByRole('button', { name: /Add to calendar/i }),
+    ).not.toBeInTheDocument();
+  });
+
   it("renders transaction explorer links pointing to the active network", async () => {
     renderVaultDetail("1");
 
@@ -469,6 +479,9 @@ describe("VaultDetail", () => {
     });
 
     it("renders the explorer link pointing to the testnet contract URL", async () => {
+      const validContractAddress = CONTRACT_ADDRESS;
+      MASTER_VAULTS["1"].contractAddress = validContractAddress;
+
       renderVaultDetail("1");
       await screen.findByRole("contentinfo");
       const link = screen.getByRole("link", {
@@ -476,7 +489,7 @@ describe("VaultDetail", () => {
       });
       expect(link).toHaveAttribute(
         "href",
-        "https://stellar.expert/explorer/testnet/contract/GCONT3KQKM4XNQPBEZMXPOLKQKM4XNQPBEZMXPOLKQK",
+        `https://stellar.expert/explorer/testnet/contract/${validContractAddress}`,
       );
       expect(link).toHaveAttribute("target", "_blank");
       expect(link).toHaveAttribute("rel", "noopener noreferrer");

@@ -1,5 +1,5 @@
 {
-  "name": "@disciplr/design-system",
+  "name": "@disciplrdesign-system",
   "version": "0.1.0",
   "description": "Disciplr Design System - Brand identity, tokens, and component specifications",
   "main": "dist/index.js",
@@ -9,7 +9,7 @@
     "test": "jest",
     "test:watch": "jest --watch",
     "lint": "eslint src --ext .ts,.tsx",
-    "format": "prettier --write \"src/**/*.{ts,tsx,json}\""
+    "format": "prettier --write \"src/**/*.{ts,tsx,jsone}\""
   },
   "keywords": ["design-system", "design-tokens", "disciplr"],
   "author": "Disciplr Team",

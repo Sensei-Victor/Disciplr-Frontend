@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import {
   daysRemaining,
   urgencyColor,
@@ -35,6 +35,20 @@ describe('Dashboard Utility Helpers', () => {
       const deadline = '2026-06-28T14:24:00Z';
       expect(daysRemaining(deadline, MOCK_NOW)).toBe(2);
     });
+
+    it('returns NaN for an invalid deadline string', () => {
+      expect(Number.isNaN(daysRemaining('not-a-date', MOCK_NOW))).toBe(true);
+    });
+
+    it('returns NaN for an empty deadline string', () => {
+      expect(Number.isNaN(daysRemaining('', MOCK_NOW))).toBe(true);
+    });
+
+    it('treats a boundary deadline just over 24 hours as 2 days', () => {
+      // 24 h| 1 ms in the future -> ceil to 2 days
+      const deadline = new Date(MOCK_NOW + 24 * 60 * 60 * 1000 + 1).toISOString();
+      expect(daysRemaining(deadline, MOCK_NOW)).toBe(2);
+    });
   });
 
   describe('urgencyColor', () => {
@@ -53,6 +67,15 @@ describe('Dashboard Utility Helpers', () => {
     it('returns success color when days remaining is greater than 30', () => {
       expect(urgencyColor(31)).toBe('var(--success)');
       expect(urgencyColor(100)).toBe('var(--success)');
+    });
+
+    it('returns danger color for negative days remaining (overdue)', () => {
+      expect(urgencyColor(-1)).toBe('var(--danger)');
+      expect(urgencyColor(-100)).toBe('var(--danger)');
+    });
+
+    it('returns danger color for NaN (fail-closed)', () => {
+      expect(urgencyColor(NaN)).toBe('var(--danger)');
     });
   });
 
@@ -77,6 +100,14 @@ describe('Dashboard Utility Helpers', () => {
       const iso = new Date(MOCK_NOW - 3 * 24 * 60 * 60 * 1000).toISOString();
       expect(relativeTime(iso, MOCK_NOW)).toBe('3 days ago');
     });
+
+    it('returns an empty string for an invalid timestamp', () => {
+      expect(relativeTime('not-a-date', MOCK_NOW)).toBe('');
+    });
+
+    it('returns an empty string for an empty timestamp', () => {
+      expect(relativeTime('', MOCK_NOW)).toBe('');
+    });
   });
 
   describe('formatSummary', () => {
@@ -95,6 +126,31 @@ describe('Dashboard Utility Helpers', () => {
         pendingMilestones: '4',
         completionRate: '85%',
       });
+    });
+
+    it('formats zero values without throwing', () => {
+      const formatted = formatSummary({
+        totalLocked: 0,
+        activeVaults: 0,
+        pendingMilestones: 0,
+        completionRate: 0,
+      });
+      expect(formatted).toEqual({
+        totalLocked: '$0',
+        activeVaults: '0',
+        pendingMilestones: '0',
+        completionRate: '0%',
+      });
+    });
+
+    it('formats fractional amounts without losing precision', () => {
+      const formatted = formatSummary({
+        totalLocked: 1234.56,
+        activeVaults: 1,
+        pendingMilestones: 1,
+        completionRate: 50,
+      });
+      expect(formatted.totalLocked).toBe(Number(1234.56).toLocaleString('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }));
     });
   });
 
@@ -121,13 +177,13 @@ describe('Dashboard Utility Helpers', () => {
       expect(processed[0].urgencyColor).toBe('var(--danger)'); // <= 7 days
       expect(processed[0].formattedDays).toBe('3d');
       expect(processed[0].formattedAmount).toBe('5,000 USDC');
-      expect(processed[0].formattedDate).toBe('Jun 30');
+      expect(processed[0].formattedDate).toBe(Number('2026-06-30T12:00:00Z').toLocaleString('en-US', { month: 'short', day: 'numeric' }));
 
       expect(processed[1].daysRemaining).toBe(13);
       expect(processed[1].urgencyColor).toBe('var(--warning)'); // <= 30 days
       expect(processed[1].formattedDays).toBe('13d');
       expect(processed[1].formattedAmount).toBe('1,000 USDC');
-      expect(processed[1].formattedDate).toBe('Jul 10');
+      expect(processed[1].formattedDate).toBe(Number('2026-07-10T12:00:00Z').toLocaleString('en-US', { month: 'short', day: 'numeric' }));
     });
 
     it('handles a single deadline item correctly', () => {
@@ -147,6 +203,34 @@ describe('Dashboard Utility Helpers', () => {
       expect(processed[0].daysRemaining).toBe(-7);
       expect(processed[0].formattedDays).toBe('7d overdue');
       expect(processed[0].urgencyColor).toBe('var(--danger)');
+    });
+
+    it('does not mutate the input array or items', () => {
+      const deadlines: Deadline[] = [
+        { id: '2', name: 'Later Vault', deadline: '2026-07-10T12:00:00Z', amount: 1000 },
+        { id: '1', name: 'Earlier Vault', deadline: '2026-06-30T12:00:00Z', amount: 5000 },
+      ];
+      const snapshot = JSON.parse(JSON.stringify(deadlines));
+      processDeadlines(deadlines, MOCK_NOW);
+      expect(deadlines).toEqual(snapshot);
+    });
+
+    it('produces deterministic output for duplicate ids', () => {
+      const deadlines: Deadline[] = [
+        { id: '1', name: 'A', deadline: '2026-06-30T12:00:00Z', amount: 100 },
+        { id: '1', name: 'B', deadline: '2026-06-28T12:00:00Z', amount: 200 },
+      ];
+      const first = processDeadlines(deadlines, MOCK_NOW);
+      const second = processDeadlines(deadlines, MOCK_NOW);
+      expect(first).toEqual(second);
+      expect(first).toHaveLength(2);
+    });
+
+    it('survives an invalid deadline without throwing', () => {
+      const deadlines: Deadline[] = [
+        { id: '1', name: 'Bad', deadline: 'not-a-date', amount: 100 },
+      ];
+      expect(() => processDeadlines(deadlines, MOCK_NOW)).not.toThrow();
     });
   });
 
@@ -183,6 +267,34 @@ describe('Dashboard Utility Helpers', () => {
       const processed = processActivity(activities, MOCK_NOW);
       expect(processed).toHaveLength(1);
       expect(processed[0].relativeTime).toBe('15 minutes ago');
+    });
+
+    it('does not mutate the input array or items', () => {
+      const activities: Activity[] = [
+        { id: 'a2', type: 'created', vault: 'Alpha Vault', timestamp: '2026-06-25T12:00:00Z', amount: 2000 },
+        { id: 'a1', type: 'validated', vault: 'Beta Vault', timestamp: '2026-06-26T12:00:00Z' },
+      ];
+      const snapshot = JSON.parse(JSON.stringify(activities));
+      processActivity(activities, MOCK_NOW);
+      expect(activities).toEqual(snapshot);
+    });
+
+    it('produces deterministic output for duplicate ids', () => {
+      const activities: Activity[] = [
+        { id: 'a1', type: 'created', vault: 'A', timestamp: '2026-06-25T12:00:00Z' },
+        { id: 'a1', type: 'validated', vault: 'B', timestamp: '2026-06-26T12:00:00Z' },
+      ];
+      const first = processActivity(activities, MOCK_NOW);
+      const second = processActivity(activities, MOCK_NOW);
+      expect(first).toEqual(second);
+      expect(first).toHaveLength(2);
+    });
+
+    it('survives an invalid timestamp without throwing', () => {
+      const activities: Activity[] = [
+        { id: 'a1', type: 'created', vault: 'Bad', timestamp: 'not-a-date' },
+      ];
+      expect(() => processActivity(activities, MOCK_NOW)).not.toThrow();
     });
   });
 
@@ -292,6 +404,43 @@ describe('Dashboard Utility Helpers', () => {
       expect(result.pendingMilestones).toBe(6);
       // 1 completed / 3 terminal = 33.33 → rounded to 33
       expect(result.completionRate).toBe(33);
+    });
+
+    it('treats unknown status as non-active and non-terminal', () => {
+      const vaults = [
+        makeVault('1', 'active', 1000),
+        makeVault('2', 'unknown' as VaultStatus, 9999),
+      ];
+      const result = computeDashboardSummary(vaults);
+      expect(result.totalLocked).toBe(1000);
+      expect(result.activeVaults).toBe(1);
+      expect(result.completionRate).toBe(0);
+    });
+
+    it('ignores negative and NaN amounts in totalLocked', () => {
+      const vaults = [
+        makeVault('1', 'active', 1000),
+        makeVault('2', 'active', -500),
+        makeVault('3', 'active', NaN),
+      ];
+      const result = computeDashboardSummary(vaults);
+      expect(Number.isFinite(result.totalLocked)).toBe(true);
+      expect(result.totalLocked).toBe(1000);
+    });
+
+    it('is deterministic across repeated invocations', () => {
+      const vaults = [
+        makeVault('1', 'active', 1000, 2),
+        makeVault('2', 'completed', 0, 0),
+      ];
+      expect(computeDashboardSummary(vaults)).toEqual(computeDashboardSummary(vaults));
+    });
+
+    it('does not mutate the input vault list', () => {
+      const vaults = [makeVault('1', 'active', 1000, 2)];
+      const snapshot = JSON.parse(JSON.stringify(vaults));
+      computeDashboardSummary(vaults);
+      expect(vaults).toEqual(snapshot);
     });
   });
 });

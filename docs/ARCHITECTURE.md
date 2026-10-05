@@ -99,9 +99,11 @@ stores. See [`docs/STORES.md`](./STORES.md) for the full store contracts.
 
 ### [`src/Zustand/Store.ts`](../src/Zustand/Store.ts)
 
-- `useNotification` — the notification feed: `notification[]`, derived
-  `unreadCount`, and `setNotification`, `markRead(id)`, `markAllRead()`. Seeded
-  from `getNotifications()` example data.
+- `useNotification` — the notification feed: `notification[]`, and `setNotification`, `markRead(id)`, `markAllRead()`. Seeded
+  from `getNotifications()` example data. The unread count is derived via the
+  `useUnreadCount` selector (`notification.filter(n => !n.isRead).length`) rather
+  than being stored as a separate field, preventing drift between the count and
+  the array.
 - `useVerifierStore` — verifier workflow state: `pendingValidations[]` and
   `validationHistory[]` (`ValidationTask` records), with `approveValidation`,
   `rejectValidation`, and the `batchApprove` / `batchReject` mutators. Batch

@@ -6,6 +6,15 @@
  * the underlying operation again. This is the boundary guard against
  * double-submits of irreversible vault actions (validate / cancel), even if
  * the UI (or a hostile script) calls the seam more than once in a tick.
+ *
+ * Invariants:
+*  - At most one underlying runner invocation is in flight at any time.
+ *  - Concurrent callers within the same flight share the exact same promise
+ *    (so they observe identical resolution/rejection and no duplicate side
+ *    effects).
+ *  - The flight is cleared on both resolve and reject, so a legitimate later
+ *    action still executes.
+ *  - A rejected flight does not poison future flights.
  */
 
 export interface SingleFlightRunner<TArgs extends unknown[], TResult> {
@@ -21,18 +30,29 @@ export interface SingleFlightRunner<TArgs extends unknown[], TResult> {
 export function createSingleFlightRunner<TArgs extends unknown[], TResult>(
   runner: (...args: TArgs) => Promise<TResult>,
 ): SingleFlightRunner<TArgs, TResult> {
+  if (typeof runner !== 'function') {
+    throw new TypeError('createSingleFlightRunner: runner must be a function');
+  }
+
   let inflight: Promise<TResult> | null = null;
 
   const run = (...args: TArgs): Promise<TResult> => {
     if (inflight) {
       return inflight;
     }
-    inflight = Promise.resolve()
+    // Capture the flight locally so the `finally` clearance only nulls the
+    // shared slot if it still points at this flight. This prevents a stale
+    // flight from clearing a newly started one in theoretical re-entrant
+    // settlement orderings.
+    const flight = Promise.resolve()
       .then(() => runner(...args))
       .finally(() => {
-        inflight = null;
+        if (inflight === flight) {
+          inflight = null;
+        }
       });
-    return inflight;
+    inflight = flight;
+    return flight;
   };
 
   return { run, isPending: () => inflight !== null };

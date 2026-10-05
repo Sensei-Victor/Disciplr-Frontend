@@ -329,3 +329,103 @@ describe('ThemeContext OS preference following', () => {
     expect(mediaEventHandlers.has('(prefers-color-scheme: dark)')).toBe(false);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Issue #1266 — safeSetItem must accept only UserPreference values.
+// The fix narrows the `value` parameter from `string` to `UserPreference`,
+// eliminating the unsafe `as UserPreference` cast in the catch block.
+//
+// TypeScript enforces this at the call boundary (compile time), so the runtime
+// test here confirms the in-memory fallback path only ever holds a valid
+// UserPreference, never an arbitrary string.
+// ---------------------------------------------------------------------------
+describe('ThemeContext safeSetItem type safety (issue #1266)', () => {
+  beforeEach(() => {
+    // Install the storage spy FIRST so vi.mocked() can find it within each test.
+    vi.spyOn(Storage.prototype, 'setItem');
+    vi.spyOn(window, 'matchMedia').mockImplementation((query: string) => ({
+      matches: false,
+      media: query,
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+    } as unknown as MediaQueryList));
+    localStorage.clear();
+    document.documentElement.removeAttribute('data-theme');
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  test('in-memory fallback stores a valid UserPreference when setItem throws for "light"', () => {
+    // Now the spy is already in place; override it to throw.
+    vi.mocked(Storage.prototype.setItem).mockImplementation(() => {
+      throw new Error('quota exceeded');
+    });
+
+    render(
+      <ThemeProvider>
+        <TestComponent />
+      </ThemeProvider>,
+    );
+
+    // Drive ThemeProvider to call safeSetItem with 'light'.
+    fireEvent.click(screen.getByText('Toggle')); // system → light
+
+    // The component should reflect 'light' even though localStorage.setItem threw,
+    // confirming the in-memory fallback received a valid UserPreference value.
+    expect(screen.getByTestId('preference')).toHaveTextContent('light');
+    expect(screen.getByTestId('theme')).toHaveTextContent('light');
+  });
+
+  test('in-memory fallback stores a valid UserPreference when setItem throws for "dark"', () => {
+    vi.mocked(Storage.prototype.setItem).mockImplementation(() => {
+      throw new Error('quota exceeded');
+    });
+
+    render(
+      <ThemeProvider>
+        <TestComponent />
+      </ThemeProvider>,
+    );
+
+    fireEvent.click(screen.getByText('Toggle')); // system → light
+    fireEvent.click(screen.getByText('Toggle')); // light → dark
+
+    expect(screen.getByTestId('preference')).toHaveTextContent('dark');
+    expect(screen.getByTestId('theme')).toHaveTextContent('dark');
+  });
+
+  test('in-memory fallback stores a valid UserPreference when setItem throws for "system"', () => {
+    vi.mocked(Storage.prototype.setItem).mockImplementation(() => {
+      throw new Error('quota exceeded');
+    });
+
+    render(
+      <ThemeProvider>
+        <TestComponent />
+      </ThemeProvider>,
+    );
+
+    // Force a round-trip back to system to confirm the fallback accepts it.
+    fireEvent.click(screen.getByText('Toggle')); // system → light
+    fireEvent.click(screen.getByText('Toggle')); // light → dark
+    fireEvent.click(screen.getByText('Toggle')); // dark → system
+
+    expect(screen.getByTestId('preference')).toHaveTextContent('system');
+  });
+
+  test('all three valid UserPreference values are accepted by setTheme without error', () => {
+    // Runtime complement to the compile-time narrowing: confirms the call sites
+    // that already pass UserPreference values continue to work after the type fix.
+    render(
+      <ThemeProvider>
+        <TestComponent />
+      </ThemeProvider>,
+    );
+
+    expect(() => fireEvent.click(screen.getByText('Set Light'))).not.toThrow();
+    expect(() => fireEvent.click(screen.getByText('Set Dark'))).not.toThrow();
+    expect(() => fireEvent.click(screen.getByText('Set System'))).not.toThrow();
+  });
+});

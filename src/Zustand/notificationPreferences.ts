@@ -1,4 +1,5 @@
 import { create } from "zustand";
+import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import { BoundaryError } from "./boundaryErrors";
 import {
@@ -44,6 +45,7 @@ const ALLOWED_PARTIAL_KEYS = new Set([
   "quietHours",
   "ownerKey",
   "lastNonce",
+  "reset",
 ]);
 
 function isFrequency(value: unknown): value is NotificationFrequency {
@@ -80,6 +82,15 @@ function assertOwnerMatches(session: SessionSnapshot, ownerKey: string | null) {
       "UNAUTHORIZED",
       "Preference state is owned by a different wallet session.",
       { ownerKey, live },
+    );
+  }
+}
+
+function assertSessionConnected(session: SessionSnapshot) {
+  if (!session.address || !session.network) {
+    throw new BoundaryError(
+      "DISCONNECTED_WALLET",
+      "Cannot apply server preferences without a connected wallet.",
     );
   }
 }
@@ -127,6 +138,38 @@ function validatePrefsPartial({
   }
 
   assertOwnerMatches(session, current.ownerKey);
+  if ("lastNonce" in partial) {
+    if (
+      partial.lastNonce !== null &&
+      (typeof partial.lastNonce !== "string" ||
+        partial.lastNonce.length === 0)
+    ) {
+      throw new BoundaryError(
+        "TAMPERED_INPUT",
+        "lastNonce must be a non-empty string or null.",
+      );
+    }
+  }
+  if ("ownerKey" in partial) {
+    if (
+      partial.ownerKey !== null &&
+      typeof partial.ownerKey !== "string"
+    ) {
+      throw new BoundaryError(
+        "TAMPERED_INPUT",
+        "ownerKey must be a string or null.",
+      );
+    }
+    if (session.address && partial.ownerKey) {
+      const live = sessionKey(session);
+      if (partial.ownerKey !== live) {
+        throw new BoundaryError(
+          "UNAUTHORIZED",
+          "ownerKey does not match the active session.",
+        );
+      }
+    }
+  }
 
   const liveKey = session.address ? sessionKey(session) : current.ownerKey;
   return {
@@ -171,12 +214,8 @@ export const useNotificationPreferences = create<NotificationPreferencesState>()
             "notification-preferences",
           );
           const session = getSession();
-          if (!session.address || !session.network) {
-            throw new BoundaryError(
-              "DISCONNECTED_WALLET",
-              "Cannot apply server preferences without a connected wallet.",
-            );
-          }
+          assertSessionConnected(session);
+          assertOwnerMatches(session, get().ownerKey);
           set({
             ...parsed,
             ownerKey: sessionKey(session),

@@ -1,10 +1,10 @@
 # CreateVault Integration Test Summary
 
-## Overview
+##Overview
 
 A comprehensive integration test suite for the CreateVault submit-to-review-to-confirm flow has been successfully implemented in `src/pages/__tests__/createVaultFlow.integration.test.tsx`.
 
-## What Was Implemented
+##What Was Implemented
 
 ### Test File
 - **Location:** `src/pages/__tests__/createVaultFlow.integration.test.tsx`
@@ -12,7 +12,7 @@ A comprehensive integration test suite for the CreateVault submit-to-review-to-c
 - **Status:** ✅ All tests passing
 - **Coverage:** 98.26% line coverage, 100% branch coverage for `CreateVault.tsx`
 
-### Test Categories
+###Test Categories
 
 #### 1. Happy Path: Form → Review → Confirm (3 tests)
 - ✅ Complete flow with valid inputs showing review details

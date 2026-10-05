@@ -296,6 +296,8 @@ export default function CommandPalette({
                 onChange={(event) => setQuery(event.target.value)}
                 placeholder="Type a vault name, id, or action"
                 aria-controls="command-palette-results"
+                aria-autocomplete="list"
+                aria-expanded="true"
                 aria-activedescendant={
                   items[activeIndex]
                     ? `command-palette-option-${activeIndex}`

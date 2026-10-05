@@ -29,3 +29,5 @@ class string:
 | `caption` | `text-caption` |
 | `mono` | `text-mono` |
 
+Class composition with additional styles is handled directly by the `Text` primitive (`src/components/Text.tsx`). The deprecated `classifyTypography` export is removed to minimize surface area and prevent redundant wrappers.
+

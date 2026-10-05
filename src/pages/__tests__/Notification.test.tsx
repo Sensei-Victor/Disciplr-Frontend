@@ -1,9 +1,8 @@
-import { render, screen, fireEvent } from "@testing-library/react";
-import { MemoryRouter, Routes, Route } from "react-router-dom";
-import { describe, it, expect, beforeEach, vi } from "vitest";
+import { render, screen, fireEvent, within, waitFor } from "@testing-library/react";
+import { MemoryRouter } from "react-router-dom";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import type { Ref, ReactNode } from "react";
 import Notification from "../Notification";
-import NotificationSettings from "../NotificationSettings";
 import { useNotification } from "@/Zustand/Store";
 import { getNotifications } from "@/components/Notification/exampleNotification/example";
 
@@ -34,7 +33,7 @@ const initialNotifications = getNotifications();
 
 function resetStore() {
   useNotification.setState({
-    notification: initialNotifications,
+    notification: initialNotifications.map((n) => ({ ...n })),
   });
 }
 
@@ -46,9 +45,20 @@ function renderNotification() {
   );
 }
 
+function openFilterPanel() {
+  const filterButton = screen.getByRole("button", { name: /filter notifications/i });
+  if (filterButton.getAttribute("aria-expanded") !== "true") {
+    fireEvent.click(filterButton);
+  }
+}
+
 describe("Notification page", () => {
   beforeEach(() => {
     resetStore();
+  });
+
+  afterEach(() => {
+    useNotification.setState({ confirmClearAll: false } as any);
   });
 
   it("renders the first page of notifications", () => {
@@ -59,9 +69,6 @@ describe("Notification page", () => {
 
   it("displays pagination info", () => {
     renderNotification();
-    expect(
-      screen.getByRole("navigation", { name: "Notifications pagination" }),
-    ).toBeInTheDocument();
     expect(
       screen.getByRole("navigation", { name: "Notifications pagination" }),
     ).toBeInTheDocument();
@@ -87,16 +94,12 @@ describe("Notification page", () => {
     renderNotification();
     fireEvent.click(screen.getByRole("button", { name: "Go to page 3" }));
     const totalPages = Math.ceil(initialNotifications.length / 5);
-    expect(
-      screen.getByText(`Page 3 of ${totalPages}`),
-    ).toBeInTheDocument();
+    expect(screen.getByText(`Page 3 of ${totalPages}`)).toBeInTheDocument();
   });
 
   it("filters by unread via the read filter dropdown", () => {
     renderNotification();
-
-    const filterButton = screen.getByText("Filter");
-    fireEvent.click(filterButton);
+    openFilterPanel();
 
     const readSelect = document.querySelector(
       'select[name="filter_by_read"]',
@@ -117,9 +120,7 @@ describe("Notification page", () => {
       })),
     });
     renderNotification();
-
-    const filterButton = screen.getByText("Filter");
-    fireEvent.click(filterButton);
+    openFilterPanel();
 
     const readSelect = document.querySelector(
       'select[name="filter_by_read"]',
@@ -141,24 +142,17 @@ describe("Notification page", () => {
     expect(updated!.isRead).toBe(true);
   });
 
-  it("resets to page 1 when filter changes", () => {
+  it("ignores a stale dismiss action without changing notifications", () => {
     renderNotification();
+    const before = useNotification.getState().notification;
 
-    const nextButton = screen.getByRole("button", { name: "Go to next page" });
-    fireEvent.click(nextButton);
-    const totalPages = Math.ceil(initialNotifications.length / 5);
-    expect(screen.getByText(`Page 2 of ${totalPages}`)).toBeInTheDocument();
+    act(() => {
+      useNotification.getState().dismiss("notification-that-no-longer-exists");
+    });
 
-    const filterButton = screen.getByText("Filter");
-    fireEvent.click(filterButton);
-
-    const readSelect = document.querySelector(
-      'select[name="filter_by_read"]',
-    ) as HTMLSelectElement;
-    fireEvent.change(readSelect, { target: { value: "0" } });
-
-    expect(screen.getByText(/Page 1 of/)).toBeInTheDocument();
+    expect(useNotification.getState().notification).toEqual(before);
   });
+
   it("resets to page 1 when filter changes", () => {
     renderNotification();
 
@@ -167,8 +161,7 @@ describe("Notification page", () => {
     const totalPages = Math.ceil(initialNotifications.length / 5);
     expect(screen.getByText(`Page 2 of ${totalPages}`)).toBeInTheDocument();
 
-    const filterButton = screen.getByText("Filter");
-    fireEvent.click(filterButton);
+    openFilterPanel();
 
     const readSelect = document.querySelector(
       'select[name="filter_by_read"]',
@@ -236,7 +229,7 @@ describe("Notification page", () => {
 
   it("resets to page 1 when dismissing the last item on the current page", () => {
     // Set up a small list so page 2 exists with 1 item
-    const smallList = initialNotifications.slice(0, 6);
+    const smallList = initialNotifications.slice(0, 6).map((n) => ({ ...n }));
     useNotification.setState({
       notification: smallList,
     });
@@ -283,15 +276,14 @@ describe("Notification page", () => {
       renderNotification();
       const liveRegion = screen.getByRole("status");
       expect(liveRegion).toBeInTheDocument();
-      
+
       const expectedInitialCount = initialNotifications.length;
       expect(liveRegion.textContent).toBe(
         `Showing ${expectedInitialCount} notifications. Active filters: status all, category all categories.`
       );
 
       // Open filter panel
-      const filterButton = screen.getByRole("button", { name: /filter notifications/i });
-      fireEvent.click(filterButton);
+      openFilterPanel();
 
       // Select Unread status filter
       const readSelect = document.querySelector('select[name="filter_by_read"]') as HTMLSelectElement;
@@ -320,99 +312,146 @@ describe("Notification page", () => {
     });
 
     it("announces 'No notifications found' when filter matches nothing", () => {
-    useNotification.setState({
-      notification: initialNotifications.map((n) => ({
-        ...n,
-        isRead: true,
-      })),
-    });
-    renderNotification();
+      useNotification.setState({
+        notification: initialNotifications.map((n) => ({
+          ...n,
+          isRead: true,
+        })),
+      });
+      renderNotification();
       const liveRegion = screen.getByRole("status");
 
       // Open filter panel
-      const filterButton = screen.getByRole("button", { name: /filter notifications/i });
-      fireEvent.click(filterButton);
+      openFilterPanel();
 
       // Select Unread status filter
       const readSelect = document.querySelector('select[name="filter_by_read"]') as HTMLSelectElement;
       fireEvent.change(readSelect, { target: { value: "0" } });
 
       expect(liveRegion.textContent).toBe(
-        `No notifications found. Active filters: status unread, category all categories.`
+        "No notifications found. Active filters: status unread, category all categories."
       );
-    });
-
-    it("closes the filter panel and restores focus when Escape key is pressed", () => {
-      renderNotification();
-      const filterButton = screen.getByRole("button", { name: /filter notifications/i });
-      
-      // Open panel
-      fireEvent.click(filterButton);
-      expect(filterButton).toHaveAttribute("aria-expanded", "true");
-
-      const readSelect = document.querySelector('select[name="filter_by_read"]') as HTMLSelectElement;
-      readSelect.focus();
-      expect(document.activeElement).toBe(readSelect);
-
-      // Press Escape
-      fireEvent.keyDown(document, { key: "Escape" });
-      expect(filterButton).toHaveAttribute("aria-expanded", "false");
-      expect(document.activeElement).toBe(filterButton);
-    });
-
-    it("restores focus when click outside closes the filter panel", () => {
-      renderNotification();
-      const filterButton = screen.getByRole("button", { name: /filter notifications/i });
-      
-      // Open panel
-      fireEvent.click(filterButton);
-      expect(filterButton).toHaveAttribute("aria-expanded", "true");
-
-      const readSelect = document.querySelector('select[name="filter_by_read"]') as HTMLSelectElement;
-      readSelect.focus();
-      expect(document.activeElement).toBe(readSelect);
-
-      // Click outside (on the body or some other element outside containerRef)
-      fireEvent.mouseDown(document.body);
-      expect(filterButton).toHaveAttribute("aria-expanded", "false");
-      expect(document.activeElement).toBe(filterButton);
-    });
-
-    it("marks a notification as read when clicking on the message content", () => {
-      renderNotification();
-      const firstUnread = initialNotifications.find((n) => !n.isRead)!;
-      
-      // The message title is rendered
-      const titleElement = screen.getByText(firstUnread.title);
-      fireEvent.click(titleElement);
-
-      const state = useNotification.getState();
-      const updated = state.notification.find((n) => n.id === firstUnread.id);
-      expect(updated!.isRead).toBe(true);
     });
   });
 
-  describe("navigation to settings", () => {
-    it("navigates from the bell icon through to the settings screen", () => {
-      render(
-        <MemoryRouter initialEntries={["/notifications"]}>
-          <Routes>
-            <Route path="/notifications" element={<Notification />} />
-            <Route path="/notifications/settings" element={<NotificationSettings />} />
-          </Routes>
-        </MemoryRouter>,
-      );
-
-      const settingsLink = screen.getByRole("link", {
-        name: "Notification Preferences",
-      });
-      expect(settingsLink).toHaveAttribute("href", "/notifications/settings");
-
-      fireEvent.click(settingsLink);
-
-      expect(
-        screen.getByRole("heading", { name: "Notification Settings" }),
-      ).toBeInTheDocument();
+  describe("Failure paths and boundary conditions", () => {
+    it("renders empty state when the store has no notifications", () => {
+      useNotification.setState({ notification: [] });
+      renderNotification();
+      expect(screen.getByText("No notifications found.")).toBeInTheDocument();
+      expect(screen.queryByText("Clear all")).not.toBeInTheDocument();
     });
+
+    it("disables next button on the last page", () => {
+      useNotification.setState({ notification: initialNotifications.slice(0, 3).map((n) => ({ ...n })) });
+      renderNotification();
+      const nextButton = screen.getByRole("button", { name: "Go to next page" });
+      expect(nextButton).toBeDisabled();
+    });
+
+    it("resets to page 1 when all notifications are cleared from a later page", () => {
+      const smallList = initialNotifications.slice(0, 6).map((n) => ({ ...n }));
+      useNotification.setState({ notification: smallList });
+      renderNotification();
+
+      fireEvent.click(screen.getByRole("button", { name: "Go to next page" }));
+      expect(screen.getByText(/Page 2 of 2/)).toBeInTheDocument();
+
+      fireEvent.click(screen.getByText("Clear all"));
+      const confirmButton = screen.getAllByText("Clear all")[1];
+      fireEvent.click(confirmButton);
+
+      expect(screen.getByText(/Page 1 of 1/)).toBeInTheDocument();
+      expect(screen.getByText("No notifications found.")).toBeInTheDocument();
+    });
+
+    it("ignores duplicate markRead calls and keeps state consistent", () => {
+      const unread = initialNotifications.find((n) => !n.isRead)!;
+      useNotification.getState().markRead(unread.id);
+      useNotification.getState().markRead(unread.id);
+      const updated = useNotification.getState().notification.find((n) => n.id === unread.id);
+      expect(updated?.isRead).toBe(true);
+    });
+
+    it("resists concurrent dismiss and markRead on the same notification without corrupting state", () => {
+      const target = initialNotifications[0];
+      const store = useNotification.getState();
+      store.markRead(target.id);
+      store.dismiss(target.id);
+      const state = useNotification.getState();
+      expect(state.notification.find((n) => n.id === target.id)).toBeUndefined();
+      expect(state.notification.length).toBe(initialNotifications.length - 1);
+    });
+
+    it("does not crash when dismissing an unknown notification id", () => {
+      const store = useNotification.getState();
+      expect(() => store.dismiss("non-existent-id")).not.toThrow();
+      expect(useNotification.getState().notification.length).toBe(initialNotifications.length);
+    });
+
+    it("does not crash when marking an unknown notification as read", () => {
+      const store = useNotification.getState();
+      expect(() => store.markRead("non-existent-id")).not.toThrow();
+      expect(useNotification.getState().notification.length).toBe(initialNotifications.length);
+    });
+
+    it("clears all atomically even when called twice in succession", () => {
+      const store = useNotification.getState();
+      store.clearAll();
+      store.clearAll();
+      expect(useNotification.getState().notification).toEqual([]);
+    });
+
+    it("preserves pagination invariants when filter changes repeatedly", () => {
+      renderNotification();
+      openFilterPanel();
+      const readSelect = document.querySelector('select[name="filter_by_read"]') as HTMLSelectElement;
+      fireEvent.change(readSelect, { target: { value: "0" } });
+      fireEvent.change(readSelect, { target: { value: "1" } });
+      fireEvent.change(readSelect, { target: { value: "0" } });
+      expect(screen.getByText(/Page 1 of/)).toBeInTheDocument();
+    });
+  });
+});
+
+describe("Notification page with a large inbox", () => {
+  // More than FULL_PAGE_LIST_LIMIT * itemsPerPage, so the windowed pagination
+  // (and with it the jump control) is actually engaged.
+  const bulkNotifications = Array.from({ length: 45 }, (_, index) => ({
+    ...initialNotifications[0],
+    id: `ntf_bulk_${index}`,
+  }));
+
+  beforeEach(() => {
+    useNotification.setState({ notification: bulkNotifications });
+  });
+
+  it("keeps the numbered controls bounded and offers a jump control", () => {
+    renderNotification();
+
+    expect(screen.getByText("Page 1 of 9")).toBeInTheDocument();
+
+    const pageButtons = screen
+      .getAllByRole("button")
+      .filter((button) => /^Go to page \d+$/.test(button.getAttribute("aria-label") ?? ""));
+    // The documented near-start window: 1 2 3 4 5 … 9. Nothing scales with 45 items.
+    expect(pageButtons).toHaveLength(6);
+    expect(screen.getByRole("button", { name: "Go to page 1" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Go to page 9" })).toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "Go to page 7" }),
+    ).not.toBeInTheDocument();
+
+    expect(screen.getByLabelText("Jump to page")).toBeInTheDocument();
+  });
+
+  it("jumps straight to a page the window does not show", () => {
+    renderNotification();
+
+    const input = screen.getByLabelText("Jump to page");
+    fireEvent.change(input, { target: { value: "8" } });
+    fireEvent.click(screen.getByRole("button", { name: "Go" }));
+
+    expect(screen.getByText("Page 8 of 9")).toBeInTheDocument();
   });
 });

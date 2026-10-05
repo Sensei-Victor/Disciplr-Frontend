@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Architectural design system documentation for `Tooltip` component (`design-system/documentation/tooltip.md`) detailing the z-index token layering scale, accessibility contracts, and usage patterns.
+- Comprehensive z-index hierarchy and stacking validation tests in `src/components/__tests__/Tooltip.test.tsx` verifying alignment with `design-system/tokens/z-index.json`.
 - Typography primitive `Text` component (`src/components/Text.tsx`) supporting
   the five typographic roles (display, title, body, caption, mono) with
   polymorphic rendering via an `as` prop.
@@ -32,6 +34,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Applied the responsive typography scale across the core pages and layout
   (Layout, Home, Vaults, CreateVault) using the `Text` component, with scaling
   at the `sm` (<640px), `md` (640-768px), and `lg` (>=768px) breakpoints.
+
+### Removed
+
+- Removed dead `classifyTypography` export in `src/utils/typography.ts` and retired redundant wrapper tests in favor of direct `Text` component composition (#1254).
 
 ### Verified
 

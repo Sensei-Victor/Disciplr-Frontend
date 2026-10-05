@@ -1,3 +1,4 @@
+import { ACCOUNT_A } from '@/__tests__/fixtures/stellarAddresses';
 import { fireEvent, render, screen, waitFor, act } from '@testing-library/react';
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import fc from 'fast-check';
@@ -6,7 +7,7 @@ import { truncateMiddle } from '../../utils/truncate';
 
 const ELLIPSIS = '...';
 
-const LONG = 'GA2C5RFPE6G6KXHEIRHZXSNBR3CJRBGUPTAOOVHRF4AFPS5YUMVSWH7B';
+const LONG = ACCOUNT_A;
 const SHORT = 'GSHORT';
 const INVALID = 'GBVZ3KQKM4XNQPBEZMXPOLKQKM4XNQPBEZMXPOLKQK7L'; // 44 chars
 
@@ -14,7 +15,7 @@ describe('AddressDisplay', () => {
     describe('truncation', () => {
         it('truncates a long address to head+tail chars', () => {
             render(<AddressDisplay address={LONG} />);
-            expect(screen.getByRole('text')).toHaveTextContent('GA2C5R...WH7B');
+            expect(screen.getByRole('text')).toHaveTextContent(`${LONG.slice(0, 6)}...${LONG.slice(-4)}`);
         });
 
         it('does not truncate a short address', () => {
@@ -24,11 +25,21 @@ describe('AddressDisplay', () => {
 
         it('respects custom chars and tailChars', () => {
             render(<AddressDisplay address={LONG} chars={4} tailChars={6} />);
-            expect(screen.getByRole('text')).toHaveTextContent('GA2C...VSWH7B');
+            expect(screen.getByRole('text')).toHaveTextContent(`${LONG.slice(0, 4)}...${LONG.slice(-6)}`);
         });
     });
 
     describe('accessibility & invalid marking', () => {
+        it('marks a checksum-corrupted address invalid and hides its explorer link', () => {
+            const corrupted = `${LONG.slice(0, -1)}A`;
+            render(<AddressDisplay address={corrupted} network="TESTNET" />);
+            const el = screen.getByRole('text');
+            expect(el).toHaveAttribute('title', `Invalid address: ${corrupted}`);
+            expect(el).toHaveAttribute('aria-label', `Invalid address ${corrupted}`);
+            expect(el).toHaveStyle({ textDecoration: 'line-through' });
+            expect(screen.queryByRole('link')).not.toBeInTheDocument();
+        });
+
         it('exposes the full address in title and aria-label for valid addresses', () => {
             render(<AddressDisplay address={LONG} />);
             const el = screen.getByRole('text');
@@ -43,7 +54,7 @@ describe('AddressDisplay', () => {
             expect(el).toHaveAttribute('title', `Invalid address: ${INVALID}`);
             expect(el).toHaveAttribute('aria-label', `Invalid address ${INVALID}`);
             expect(el).toHaveStyle({ textDecoration: 'line-through' });
-            expect(el).toHaveStyle({ color: 'var(--danger)' });
+            expect(el).toHaveStyle({ color: 'var(--error)' });
         });
 
         it('renders valid addresses with default color and no strikethrough', () => {

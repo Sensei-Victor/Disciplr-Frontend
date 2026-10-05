@@ -1,7 +1,9 @@
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { render, screen, waitFor, within, fireEvent } from "@testing-library/react";
 import { describe, test, expect, vi, beforeEach } from "vitest";
 import { MemoryRouter } from "react-router-dom";
+import { useState } from "react";
 import Dashboard from "../Dashboard";
+import VaultCard from "../../components/VaultCard";
 import { MASTER_VAULTS } from "../../fixtures/vaults";
 import { computeDashboardSummary } from "../../utils/dashboard";
 import { listVaults } from "../../services/vaultService";
@@ -52,10 +54,10 @@ describe("Dashboard page", () => {
     // Verify header title
     expect(
       screen.getByRole("heading", { level: 1, name: /Dashboard/i }),
-    ).toBeInTheDocument();
+    ).toBeInDocument();
 
     // Verify cards and sections
-    expect(screen.getByText(/Total Locked/i)).toBeInTheDocument();
+    expect(screen.getByText(/Total Locked/i)).toBeInDocument();
     const expectedActiveVaults = computeDashboardSummary(
       Object.values(MASTER_VAULTS),
     ).activeVaults;
@@ -65,13 +67,13 @@ describe("Dashboard page", () => {
           .parentElement,
       ).toHaveTextContent(String(expectedActiveVaults));
     });
-    expect(screen.getByText(/Pending Milestones/i)).toBeInTheDocument();
+    expect(screen.getByText(/Pending Milestones/i)).toBeInDocument();
     expect(
       screen.getByRole("heading", { level: 2, name: /Recent Activity/i }),
-    ).toBeInTheDocument();
+    ).toBeInDocument();
     expect(
       screen.getByRole("heading", { level: 2, name: /Upcoming Deadlines/i }),
-    ).toBeInTheDocument();
+    ).toBeInDocument();
   });
 
   test("renders empty state when no vaults are returned", async () => {
@@ -85,7 +87,7 @@ describe("Dashboard page", () => {
 
     // Verify empty state message
     await waitFor(() => {
-      expect(screen.getByText(/No vaults yet/i)).toBeInTheDocument();
+      expect(screen.getByText(/No vaults yet/i)).toBeInDocument();
     });
   });
 
@@ -125,11 +127,11 @@ describe("Dashboard page", () => {
     );
 
     await waitFor(() => {
-      expect(screen.getByText(/⚠️ At Risk/)).toBeInTheDocument();
+      expect(screen.getByText(/⭐️ At Risk/)).toBeInDocument();
     });
     expect(
       screen.getByText(/These vaults need immediate attention/),
-    ).toBeInTheDocument();
+    ).toBeInDocument();
 
     // Scope to the At Risk section itself: Soon/Critical Vault also appear in
     // the main vault list below, so assert membership within this section only.
@@ -139,16 +141,16 @@ describe("Dashboard page", () => {
     const atRiskSection = screen
       .getByText(/These vaults need immediate attention/)
       .closest("div");
-    expect(atRiskSection).toBeInTheDocument();
+    expect(atRiskSection).toBeInDocument();
     expect(
       within(atRiskSection as HTMLElement).getByText("Soon Vault"),
-    ).toBeInTheDocument();
+    ).toBeInDocument();
     expect(
       within(atRiskSection as HTMLElement).getByText("Critical Vault"),
-    ).toBeInTheDocument();
+    ).toBeInDocument();
     expect(
       within(atRiskSection as HTMLElement).queryByText("Safe Vault"),
-    ).not.toBeInTheDocument();
+    ).not.toBeInDocument();
   });
 
   test("does not render the at-risk section when no vaults are at risk", async () => {
@@ -161,9 +163,225 @@ describe("Dashboard page", () => {
     await waitFor(() => {
       expect(
         screen.getByRole("heading", { level: 1, name: /Dashboard/i }),
-      ).toBeInTheDocument();
+      ).toBeInDocument();
     });
     // MASTER_VAULTS fixture deadlines are all outside the "soon" window.
-    expect(screen.queryByText(/⚠️ At Risk/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/⍐️ At Risk/)).not.toBeInDocument();
+  });
+
+  // ------------------------------------------------------------------------
+  // Regression coverage: authorization, validation, retries, and adverse cases
+  // -------------------------------------------------------------------------
+
+  test("surfaces a non-sensitive error message and keeps the shell rendered when loading fails", async () => {
+    mockedListVaults.mockRejectedValueOnce(
+      new Error("Failed to load vaults: upname unauthorized"),
+    );
+
+    render(
+      <MemoryRouter>
+        <Dashboard />
+      </MemoryRouter>,
+    );
+
+    // The page shell must still render so the user is not left on a blank screen.
+    expect(
+      screen.getByRole("heading", { level: 1, name: /Dashboard/i }),
+    ).toBeInDocument();
+
+    // An error state must be user-visible and must not echo the raw server message.
+    await waitFor(() => {
+      expect(
+        screen.getByText(/Failed to load vaults/i),
+      ).toBeInDocument();
+    });
+    expect(screen.queryByText(/unauthorized/i)).not.toBeInDocument();
+  });
+
+  test("retries transient load failures and recovers to a consistent summary", async () => {
+    const vaults = [
+      buildVault({ id: "r-1", name: "Retry Vault", amount: 2500 }),
+    ];
+    mockedListVaults
+      .mockRejectedValueOnce(new Error("transient network failure"))
+      .mockResolvedValueOnce(vaults);
+
+    render(
+      <MemoryRouter>
+        <Dashboard />
+      </MemoryRouter>,
+    );
+
+    // After the retry succeeds, the data must reflect the successful response.
+    await waitFor(() => {
+      expect(
+        screen.getByText(/Active Vaults/i, { selector: ".text-caption" })
+          .parentElement,
+      ).toHaveTextContent("1");
+    });
+    expect(mockedListVaults.mockCalls.length).toBeGreaterThanOrEqual(2);
+  });
+
+  test("shows the error state after exhausting retries and does not loop indefinitely", async () => {
+    mockedListVaults.mockRejectedValue(new Error("permanent failure"));
+
+    render(
+      <MemoryRouter>
+        <Dashboard />
+      </MemoryRouter>,
+    );
+
+    await waitFor(() => {
+      expect(
+        screen.getByText(/Failed to load vaults/i),
+      ).toBeInDocument();
+    });
+
+    // Retries are bounded: the service must not be called an unbounded number
+    // of times. Allow a small but finite cap.
+    expect(mockedListVaults.mockCalls.length).toBeLessThanOrEqual(5);
+  });
+
+  test("rejects malformed vault records without crashing and still renders valid ones", asyncroous () => {
+    const validVault = buildVault({
+      id: "valid-1",
+      name: "Valid Vault",
+      amount: 750,
+    });
+    // Invalid records: missing id/name, negative amount, bad deadline.
+    const malformed = [
+      { ...buildVault({id: ""}), id: "" },
+      { ...buildVault({ id: "neg-1" }), amount: -100 },
+      { ...buildVault({ id: "bad-deadline" }), deadline: "not-a-date" },
+    ] as unknown as Vault[];
+
+    mockedListVaults.mockResolvedValueOnce([malformed, validVault]);
+
+    render(
+      <MemoryRouter>
+        <Dashboard />
+      </MemoryRouter>,
+    );
+
+    // The valid vault must still be visible and the page must not crash.
+    await waitFor(() => {
+      expect(screen.getByText("Valid Vault")).toBeInDocument();
+    });
+    expect(
+      screen.getByRole("heading", { level: 1, name: /Dashboard/i }),
+    ).toBeInDocument();
+  });
+
+  test("does not double-count duplicate vault ids in the summary", async () => {
+    const dup = buildVault({ id: "dup-1", name: "Dup Vault", amount: 1000 });
+    mockedListVaults.mockResolvedValueOnce([dup, dup]);
+
+    render(
+      <MemoryRouter>
+        <Dashboard />
+      </MemoryRouter>,
+    );
+
+    await waitFor(() => {
+      expect(
+        screen.getByText(/Active Vaults/i, { selector: ".text-caption" })
+          .parentElement,
+      ).toHaveTextContent("1");
+    });
+  });
+
+  test("ignores late responses from a stale request (concurrency guard)", async () => {
+    // First request resolves late with stale data; second request resolves
+    // early with fresh data. The dashboard must not overwrite the fresh
+    // result with the stale one.
+    let resolveFirst: () => void = () => {};
+    const first = new Promise<Vault[]>((
+      resolve,
+    ) => {
+      resolveFirst = () =>
+        resolve([buildVault({ id: "stale", name: "Stale Vault" })]);
+    });
+    const second = Promise.resolve([
+      buildVault({ id: "fresh", name: "Fresh Vault", amount: 9999 }),
+    ]);
+
+    mockedListVaults
+      .mockReturnValueOnce(first)
+      .mockReturnValueOnce(second);
+
+    const { rerender } = render(
+      <MemoryRouter>
+        <Dashboard />
+      </MemoryRouter>,
+    );
+
+    // Trigger a second load before the first resolves.
+    rerender(
+      <MemoryRouter>
+        <Dashboard />
+      </MemoryRouter>,
+    );
+
+    // Fresh data arrives first.
+    await waitFor(() => {
+      expect(screen.getByText("Fresh Vault")).toBeInDocument();
+    });
+
+    // Now resolve the stale request and confirm it does not clobber the fresh
+    // result.
+    resolveFirst();
+    await waitFor(() => {
+      expect(screen.queryByText("Stale Vault")).not.toBeInDocument();
+    });
+    expect(screen.getByText("Fresh Vault")).toBeInDocument();
+  });
+
+  test("memoized VaultCard does not re-render when an ancestor re-renders", async () => {
+    const spy = vi.spyOn(VaultCard, "type");
+
+    const safeDeadline = new Date(Date.now() + 30 * 86_400_000).toISOString();
+    // Names deliberately avoid the dashboard fixtures (ACTIVITY/DEADLINES
+    // already contain a vault called "Alpha Vault").
+    mockedListVaults.mockResolvedValueOnce([
+      buildVault({ id: "1", name: "Memo Vault One", deadline: safeDeadline }),
+      buildVault({ id: "2", name: "Memo Vault Two", deadline: safeDeadline }),
+    ]);
+
+    function Ancestor() {
+      const [count, setCount] = useState(0);
+      return (
+        <div>
+          <button onClick={() => setCount((c) => c + 1)}>
+            Re-render ancestor ({count})
+          </button>
+          <Dashboard />
+        </div>
+      );
+    }
+
+    render(
+      <MemoryRouter>
+        <Ancestor />
+      </MemoryRouter>,
+    );
+
+    await waitFor(() =>
+      expect(
+        screen.getByLabelText("Memo Vault One progress"),
+      ).toBeInTheDocument(),
+    );
+
+    const rendersAfterMount = spy.mock.calls.length;
+    expect(rendersAfterMount).toBe(2);
+
+    fireEvent.click(
+      screen.getByRole("button", { name: /Re-render ancestor/i }),
+    );
+
+    // The ancestor's state change re-renders Dashboard, but each VaultCard
+    // receives identical props and must not re-render.
+    expect(spy.mock.calls.length).toBe(rendersAfterMount);
+
+    spy.mockRestore();
   });
 });

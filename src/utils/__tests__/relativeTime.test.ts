@@ -9,6 +9,11 @@ describe("formatRelativeTime", () => {
       expect(formatRelativeTime(NOW - 9000, NOW)).toBe("just now");
     });
 
+    it('should return "in a moment" for very near future timestamps', () => {
+      expect(formatRelativeTime(NOW + 5000, NOW)).toBe("in a moment");
+      expect(formatRelativeTime(NOW + 9000, NOW)).toBe("in a moment");
+    });
+
     it("should format seconds correctly", () => {
       expect(formatRelativeTime(NOW - 15000, NOW)).toBe("15 seconds ago");
       expect(formatRelativeTime(NOW - 30000, NOW)).toBe("30 seconds ago");

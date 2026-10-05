@@ -81,15 +81,18 @@ describe('design-system logger', () => {
     });
 
     it('does not throw when process is unavailable', () => {
-      const globalWithProcess = global as typeof globalThis & {
-        process?: typeof process;
-      };
+      // Cast to any to satisfy strict TypeScript: the `delete` operator requires
+      // the property to be optional, but we need to temporarily remove it.
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const globalWithProcess = global as any;
       const originalProcess = globalWithProcess.process;
 
-      delete globalWithProcess.process;
+      // Temporarily hide process to simulate a non-Node runtime.
+      globalWithProcess.process = undefined;
 
       try {
         jest.isolateModules(() => {
+          // eslint-disable-next-line @typescript-eslint/no-require-imports
           const isolatedLogger = require('../utils/logger').logger as typeof logger;
           expect(() => isolatedLogger.debug('hello')).not.toThrow();
         });

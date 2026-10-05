@@ -96,21 +96,29 @@ Derived from example notifications, each item has the following structure:
 #### Store State Fields
 - `notification: NotificationItem[]`
   The list of all notifications currently loaded into memory.
-- `unreadCount: number`
-  The quantity of items in `notification` where `isRead` is `false`.
+
+> **Derived value — not stored state:** The unread count is not persisted as a
+> separate field. Use the `useUnreadCount` selector instead:
+> ```ts
+> import { useUnreadCount } from '@/Zustand/Store';
+> const unreadCount = useUnreadCount(); // notification.filter(n => !n.isRead).length
+> ```
+> This eliminates the risk of the count drifting out of sync with the
+> notification array after any mutator.
 
 ### Mutators and Effects
 
 #### `setNotification(value: NotificationItem[]): void`
-- **Effect**: Replaces the list of notifications entirely and recalculates `unreadCount` based on the new array.
+- **Effect**: Replaces the notification list entirely. The unread count is
+  automatically up-to-date via `useUnreadCount` — no manual recompute needed.
 
 #### `markRead(id: string): void`
-- **Effect**: Locates the notification by its `id`. If found and `isRead` is `false`, it sets `isRead` to `true` and decrements `unreadCount` by 1.
-- **Idempotence**: Calling `markRead` multiple times for the same `id` has no additional effect and will not decrement `unreadCount` below `0`.
+- **Effect**: Locates the notification by its `id`. If found and `isRead` is `false`, it sets `isRead` to `true`.
+- **Idempotence**: Calling `markRead` multiple times for the same `id` has no additional effect.
 - **Edge Cases**: If the ID is not found, it is a safe no-op.
 
 #### `markAllRead(): void`
-- **Effect**: Iterates through all notifications, updating any item with `isRead: false` to `isRead: true`. Resets `unreadCount` to `0`.
+- **Effect**: Iterates through all notifications, updating any item with `isRead: false` to `isRead: true`.
 - **Idempotence**: Can be called repeatedly; if all notifications are already read, state remains unchanged.
 
 ---

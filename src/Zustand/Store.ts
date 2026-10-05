@@ -16,15 +16,35 @@ type notificationsType = {
   clearAll: () => void;
 };
 
+/**
+ * Runtime guard for store entries. Types claim every entry is a
+ * `NotificationItem`, but callers can write arbitrary payloads through
+ * `setNotification`/`setState`, so every read path validates before touching
+ * entry fields. Non-objects are preserved (never crashed on, never silently
+ * dropped by a transition) and simply never match an id.
+ */
+const isRecord = (value: unknown): value is NotificationItem =>
+  typeof value === "object" && value !== null;
+
+const isList = (value: unknown): value is NotificationItem[] =>
+  Array.isArray(value);
+
 export const useNotification = create<notificationsType>((set) => ({
   notification: n,
   setNotification: (value: NotificationItem[]) =>
-    set(() => ({
-      notification: value,
-    })),
+    set((state) => {
+      // Validation boundary: only arrays are accepted, and non-object entries
+      // are discarded so a hostile payload cannot poison later transitions
+      // (markRead/markAllRead/dismiss) or unread counting.
+      if (!Array.isArray(value)) return state;
+      return { notification: value.filter(isRecord) };
+    }),
   markRead: (id: string) =>
     set((state) => {
-      const idx = state.notification.findIndex((item) => item.id === id);
+      if (!isList(state.notification)) return state;
+      const idx = state.notification.findIndex(
+        (item) => isRecord(item) && item.id === id,
+      );
       if (idx === -1) return state;
       const item = state.notification[idx];
       if (item.isRead) return state;
@@ -33,15 +53,23 @@ export const useNotification = create<notificationsType>((set) => ({
       return { notification };
     }),
   markAllRead: () =>
-    set((state) => ({
-      notification: state.notification.map((item) =>
-        item.isRead ? item : { ...item, isRead: true },
-      ),
-    })),
+    set((state) => {
+      if (!isList(state.notification)) return state;
+      return {
+        notification: state.notification.map((item) =>
+          isRecord(item) && !item.isRead ? { ...item, isRead: true } : item,
+        ),
+      };
+    }),
   dismiss: (id: string) =>
-    set((state) => ({
-      notification: state.notification.filter((item) => item.id !== id),
-    })),
+    set((state) => {
+      if (!isList(state.notification)) return state;
+      return {
+        notification: state.notification.filter(
+          (item) => !(isRecord(item) && item.id === id),
+        ),
+      };
+    }),
   clearAll: () =>
     set(() => ({
       notification: [],
@@ -50,7 +78,11 @@ export const useNotification = create<notificationsType>((set) => ({
 
 export const useUnreadCount = () =>
   useNotification((state) =>
-    state.notification.filter((item) => !item.isRead).length,
+    isList(state.notification)
+      ? state.notification.filter(
+          (item) => isRecord(item) && !item.isRead,
+        ).length
+      : 0,
   );
 
 

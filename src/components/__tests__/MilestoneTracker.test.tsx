@@ -1,6 +1,7 @@
 import { render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import {
+  MAX_EVIDENCE_URL_LENGTH,
   Milestone,
   MilestoneTracker,
 } from "../../components/MilestoneTracker";
@@ -235,6 +236,28 @@ describe("MilestoneTracker", () => {
     expect(link).toHaveAttribute("href", "http://example.com/evidence");
     expect(link).toHaveAttribute("target", "_blank");
     expect(link).toHaveAttribute("rel", "noopener noreferrer");
+  });
+
+  it("bounds evidenceUrl to MAX_EVIDENCE_URL_LENGTH before passing to SafeLink", () => {
+    const longPath = "a".repeat(3000);
+    const longUrl = `https://example.com/${longPath}`;
+    const boundedMilestones: Milestone[] = [
+      {
+        id: "m1",
+        title: "Long URL Evidence",
+        description: "Test milestone",
+        criteria: "Test",
+        status: "validated",
+        validatedAt: "2024-02-20T14:30:00Z",
+        evidenceUrl: longUrl,
+      },
+    ];
+
+    render(<MilestoneTracker milestones={boundedMilestones} />);
+
+    const link = screen.getByRole("link", { name: "View evidence" });
+    expect(link.getAttribute("href")).toHaveLength(MAX_EVIDENCE_URL_LENGTH);
+    expect(link).toHaveAttribute("href", longUrl.slice(0, MAX_EVIDENCE_URL_LENGTH));
   });
 
   it("renders loading state when isLoading is true", () => {

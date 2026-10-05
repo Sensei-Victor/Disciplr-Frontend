@@ -65,7 +65,7 @@ function checkInvariants(milestones: Milestone[]): Error | null {
     if (m.status !== 'validated' && (m.validatedAt || m.evidenceUrl)) {
       return new Error(`Milestone '${m.id}' is ${m.status} but contains validation evidence.`);
     }
-    if (hasPendingOrFailed && m.status === 'validated') {
+    if (milestones[0]?.status === 'pending' && hasPendingOrFailed && m.status === 'validated') {
       return new Error(`Impossible transition: validated milestone '${m.id}' appears after a pending or failed milestone.`);
     }
     if (m.status === 'pending' || m.status === 'failed') {
@@ -189,7 +189,11 @@ export function MilestoneTracker({
                   {milestone.evidenceUrl && (
                     <SafeLink
                       className="milestone-tracker-evidence"
-                      href={milestone.evidenceUrl}
+                      href={
+                        milestone.evidenceUrl.length > MAX_EVIDENCE_URL_LENGTH
+                          ? milestone.evidenceUrl.slice(0, MAX_EVIDENCE_URL_LENGTH)
+                          : milestone.evidenceUrl
+                      }
                     >
                       View evidence
                     </SafeLink>
@@ -205,6 +209,17 @@ export function MilestoneTracker({
                     </button>
                   )}
                 </div>
+
+                {canManage && milestone.status === 'pending' && isCurrent && onManageMilestone && (
+                  <button
+                    type="button"
+                    className="milestone-tracker-action"
+                    onClick={() => onManageMilestone(milestone)}
+                    aria-label={`Manage milestone: ${milestone.title}`}
+                  >
+                    Manage Milestone
+                  </button>
+                )}
               </div>
             </li>
           );

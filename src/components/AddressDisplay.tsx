@@ -40,7 +40,7 @@ export function AddressDisplay({
                 style={{ 
                     fontFamily: 'monospace', 
                     fontSize: 'inherit',
-                    color: isValid ? 'inherit' : 'var(--danger)',
+                    color: isValid ? 'inherit' : 'var(--error)',
                     textDecoration: isValid ? 'none' : 'line-through' 
                 }}
             >
@@ -60,7 +60,7 @@ export function AddressDisplay({
             >
                 {copied ? <Check size={14} /> : <Copy size={14} />}
             </button>
-            {network != null && explorerUrl && (
+            {network != null && isValid && explorerUrl && (
                 <a
                     href={explorerUrl}
                     target="_blank" rel="noopener noreferrer"

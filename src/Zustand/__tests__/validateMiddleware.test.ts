@@ -1,4 +1,5 @@
 /** @vitest-environment jsdom */
+import { ACCOUNT_A } from '@/__tests__/fixtures/stellarAddresses';
 import { afterEach, describe, expect, it } from "vitest";
 import { create } from "zustand";
 import { BoundaryError } from "../boundaryErrors";
@@ -11,9 +12,14 @@ import {
 } from "../sessionBoundary";
 import { parseServerPayload, validate } from "../validateMiddleware";
 
-const VALID_ADDR = "G" + "A".repeat(55);
+const VALID_ADDR = ACCOUNT_A;
 
 describe("sessionBoundary", () => {
+  it("rejects a checksum-corrupted wallet on bind", () => {
+    const address = `${VALID_ADDR.slice(0, -1)}A`;
+    expect(() => bindSession({ address, network: "TESTNET" })).toThrow(BoundaryError);
+  });
+
   afterEach(() => {
     __resetSessionForTests();
   });

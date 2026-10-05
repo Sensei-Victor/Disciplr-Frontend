@@ -120,6 +120,12 @@ export async function createVault(vaultData: {
   failureAddress: string;
   milestones: Omit<Milestone, "id" | "status">[];
 }): Promise<Vault> {
+  if (!vaultData.name || vaultData.name.trim().length === 0) {
+    throw new Error("Vault name is required.");
+  }
+  if (!Number.isFinite(vaultData.amount) || vaultData.amount <= 0) {
+    throw new Error("Vault amount must be a positive finite number.");
+  }
   const nextId = String(Object.keys(MASTER_VAULTS).length + 1);
   const newVault: Vault = {
     id: nextId,
@@ -171,6 +177,12 @@ const submitVaultActionRunner = createSingleFlightRunner(
     }
     if (!isValidVaultRouteId(vaultId) || !lookupVaultSafe(MASTER_VAULTS, vaultId)) {
       throw new Error("Vault not found.");
+    }
+    if (action === "validate") {
+      const vault = lookupVaultSafe(MASTER_VAULTS, vaultId);
+      if (vault && vault.status !== "active") {
+        throw new Error("Vault is not active.");
+      }
     }
     // SEAM: dispatch the contract invocation for `action` here.
     return;

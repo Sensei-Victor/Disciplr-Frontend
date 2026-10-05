@@ -120,6 +120,15 @@ export const validate = (<T>(
       return originalApiSetState(sanitized as Parameters<typeof originalApiSetState>[0], replace as never);
     };
 
+    // `set` above is only what the store's own actions receive. The public
+    // `useStore.setState` / `api.setState` handle still pointed at zustand's
+    // raw setter, so a write issued from outside the store reached state
+    // without ever passing this gate. Re-point it at the guarded version —
+    // the same shape devtools and persist use — so every mutation is
+    // validated, whichever handle it comes through. Note `guardedSet` closes
+    // over `set` (persist's wrapped setter), so persistence still runs.
+    api.setState = guardedSet;
+
     return config(guardedSet, get, api);
   };
 }) as Validate;

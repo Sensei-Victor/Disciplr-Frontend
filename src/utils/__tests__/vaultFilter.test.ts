@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { filterVaults, sortVaults } from '../vaultFilter';
+import type { VaultFilters } from '../vaultFilter';
 import type { Vault } from '../../types/vault';
 
 const createVault = (overrides: Partial<Vault> = {}): Vault => ({
@@ -10,10 +11,10 @@ const createVault = (overrides: Partial<Vault> = {}): Vault => ({
   currency: 'USDC',
   createdAt: '2024-01-01T00:00:00Z',
   deadline: '2024-12-31T00:00:00Z',
-  creatorAddress: 'GBVZ3KQKM4XNQPBEZMXPOLKQKM4XNQPBEZMXPOLKQK7L',
-  successAddress: 'GSUCC3KQKM4XNQPBEZMXPOLKQKM4XNQPBEZMXPOLKQK',
-  failureAddress: 'GFAIL3KQKM4XNQPBEZMXPOLKQKM4XNQPBEZMXPOLKQK',
-  contractAddress: 'GCONT3KQKM4XNQPBEZMXPOLKQKM4XNQPBEZMXPOLKQK',
+  creatorAddress: 'GBVZ3KQKM4XNQPBEZMXPOLKQK4XNQPBEZMXPOLKQKK7L',
+  successAddress: 'GSUCC3KQKM4XNQPBEZMXPOLKQKK4XNQPBEZMXPOLKQK',
+  failureAddress: 'GFAIL3KQKM4XNQPBEZMXPOLKQK4XNQPBEZMXPOLKQKK',
+  contractAddress: 'GCONT3KQKM4XNQPBEZMXPOLKQK4XNQPBEZMXPOLKQKK',
   milestones: [],
   transactions: [],
   ...overrides,
@@ -66,6 +67,13 @@ describe('filterVaults', () => {
   it('returns all vaults when empty filter options are provided', () => {
     const result = filterVaults(mockVaults, {});
     expect(result).toEqual(mockVaults);
+  });
+
+  it('accepts a VaultFilters object', () => {
+    const filters: VaultFilters = { status: 'active', query: 'alpha' };
+    const result = filterVaults(mockVaults, filters);
+    expect(result).toHaveLength(1);
+    expect(result[0].id).toBe('1');
   });
 
   it('returns all vaults when status is "all"', () => {
@@ -329,7 +337,8 @@ describe('sortVaults', () => {
       const input = [...mockVaults];
       const original = JSON.stringify(input);
       sortVaults(input, { by: 'deadline', dir: 'asc' });
-      expect(JSON.stringify(input)).toBe(original);
+      expect(JSON.stringify(input)).toBe(
+original);
     });
 
     it('returns sorted array (not a reference to original)', () => {

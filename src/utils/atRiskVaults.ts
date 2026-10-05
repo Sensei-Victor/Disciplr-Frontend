@@ -1,4 +1,4 @@
-import { deadlineUrgency } from '../components/VaultCard';
+import { deadlineUrgency } from './vaultUrgency';
 
 export interface AtRiskVault {
   id: string;
